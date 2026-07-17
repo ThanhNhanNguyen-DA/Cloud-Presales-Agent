@@ -1,0 +1,29 @@
+provider,url,title,num_tables,text_length,fetched_at
+bizfly,https://bizflycloud.vn,Bizfly Cloud - Cung cấp dịch vụ điện toán đám mây tốt nhất tại Việt Nam,0,22093,2026-07-17T07:06:08.172727+00:00
+cmc,https://cmccloud.vn/,CMC Cloud | Giải pháp Công nghệ điện toán đám mây hàng đầu Việt Nam | Website chính thức,0,8230,2026-07-17T07:06:10.639685+00:00
+cmc,https://cmccloud.vn/dich-vu/elastic-compute,Elastic Compute | CMC Cloud,0,10298,2026-07-17T07:06:12.650803+00:00
+cmc,https://cmccloud.vn/tin-tuc/ahamove-but-pha-giao-van-cung-cmc-cloud-the-he-moi-184,Ahamove bứt phá giao vận cùng CMC Cloud thế hệ mới,0,7356,2026-07-17T07:06:14.996813+00:00
+cmc,https://cmccloud.vn/tin-tuc/cmc-cloud-dong-hanh-dot-b-but-pha-cong-nghe-giao-duc,CMC Cloud đồng hành DotB bứt phá công nghệ giáo dục,0,6788,2026-07-17T07:06:17.289138+00:00
+cmc,https://cmccloud.vn/tin-tuc/ims-thuc-day-trien-khai-cac-giai-phap-so-voi-cmc-cloud-the-he-moi,IMS thúc đẩy triển khai các giải pháp số với CMC Cloud thế hệ mới,0,7149,2026-07-17T07:06:19.423741+00:00
+cmc,https://cmccloud.vn/tin-tuc/doanh-nghiep-professional-services-tu-tin-so-hoa-cung-cmc-cloud-the-he-moi,Doanh nghiệp Professional Services tự tin số hoá cùng CMC Cloud thế hệ mới,0,7967,2026-07-17T07:06:21.553997+00:00
+cmc,https://cmccloud.vn/dich-vu,CMC Cloud | Dịch vụ Điện toán đám mây,0,7502,2026-07-17T07:06:28.744118+00:00
+cmc,https://cmccloud.vn/dich-vu/s3-standard,S3 Standard | CMC Cloud,0,6946,2026-07-17T07:06:30.700171+00:00
+cmc,https://cmccloud.vn/dich-vu/cloud-backup,Cloud Backup | CMC Cloud,0,6424,2026-07-17T07:06:32.615912+00:00
+fpt,https://fptcloud.com/,FPT Cloud - Nền tảng Cloud cho sáng tạo đột phá,1,13933,2026-07-17T07:06:34.079208+00:00
+fpt,https://fptcloud.com/product/fpt-mongodb-enterprise,FPT MongoDB Enterprise - FPT Smart Cloud,1,11323,2026-07-17T07:06:38.412441+00:00
+fpt,https://fptcloud.com/product/fpt-ai-factory-vn,FPT AI Factory with AI Cloud for Developers & Enterprises,0,6814,2026-07-17T07:06:41.082317+00:00
+fpt,https://fptcloud.com/bang-gia,Bảng Giá Thuê Cloud Server 2026 - Giá Tốt Dành Cho Doanh Nghiệp,4,119442,2026-07-17T07:06:43.973780+00:00
+fpt,https://fptcloud.com/san-pham,Các sản phẩm của FPT Cloud,1,8306,2026-07-17T07:06:46.360798+00:00
+fpt,https://fptcloud.com/product/cloud-va,FPT Cloud VA - FPT Smart Cloud,1,11604,2026-07-17T07:06:48.974364+00:00
+fpt,https://fptcloud.com/product/cloud-waf,Cloud WAF,1,9643,2026-07-17T07:06:53.369726+00:00
+fpt,https://fptcloud.com/product/fpt-data-suite,Trang chủ - Datasuite,0,5265,2026-07-17T07:06:57.734035+00:00
+fpt,https://fptcloud.com/product/backup-service,Backup Services – Dịch vụ sao lưu dữ liệu đám mây,1,11887,2026-07-17T07:07:05.825777+00:00
+viettel,https://viettelcloud.vn/,Viettel Cloud,0,24,2026-07-17T07:07:06.147136+00:00
+vng,https://vngcloud.vn/,VNG Cloud - Trusted Partner for Digital Transformation | VNG Cloud,0,4172,2026-07-17T07:07:06.468109+00:00
+vng,https://vngcloud.vn/en/product/ai-platform,AI Platform | VNG Cloud,0,1810,2026-07-17T07:07:08.251627+00:00
+vng,https://vngcloud.vn/en/product/gpu-cloud,GPU Cloud - Powerful GPU servers for AI/ML workloads | VNG Cloud | VNG Cloud,0,2294,2026-07-17T07:07:10.049607+00:00
+vng,https://vngcloud.vn/en/product/vserver,vServer - Smart Cloud Server System | VNG Cloud,0,2538,2026-07-17T07:07:11.915260+00:00
+vng,https://vngcloud.vn/en/product/vstorage,vStorage - Multi-tier cloud storage solution | VNG Cloud | VNG Cloud,0,2518,2026-07-17T07:07:13.753234+00:00
+vng,https://vngcloud.vn/en/product/vks,VKS - VNGCloud Kubernetes Service | VNG Cloud,0,2258,2026-07-17T07:07:15.623717+00:00
+vng,https://vngcloud.vn/en/product/vcdn,vCDN - Optimal Content Delivery Network | VNG Cloud,0,2031,2026-07-17T07:07:17.417282+00:00
+vng,https://vngcloud.vn/en/solution/bfsi,Solution BFSI - VNG Cloud | VNG Cloud,0,5785,2026-07-17T07:07:19.188155+00:00
