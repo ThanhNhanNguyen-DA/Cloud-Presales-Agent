@@ -31,12 +31,8 @@ for idx, msg in enumerate(st.session_state.chat_history):
         st.markdown(msg["content"])
         if msg["role"] == "assistant" and msg.get("ttft") is not None:
             st.caption(f"⚡ TTFT {msg['ttft']}s · ⏱ Total {msg.get('total', '?')}s · route: {msg.get('route', '?')}")
-        if msg["role"] == "assistant" and msg.get("ragas"):
-            r = msg["ragas"]
-            fth, rel = r.get("faithfulness"), r.get("answer_relevancy")
-            fth_s = f"{fth:.2f}" if isinstance(fth, (int, float)) else "— (no context)"
-            rel_s = f"{rel:.2f}" if isinstance(rel, (int, float)) else "—"
-            st.caption(f"🎯 RAGAS · Faithfulness {fth_s} · Answer relevancy {rel_s}")
+        # RAGAS is no longer shown per-answer — it is scored in the background and viewed
+        # on the 📊 Evaluation dashboard (sidebar).
         if msg["role"] == "assistant" and not msg.get("feedback_given"):
             col1, col2 = st.columns([1, 1])
             with col1:
@@ -96,15 +92,11 @@ if user_input:
                     yield event["text"]
                 elif etype == "ttft":
                     meta["ttft"] = event["seconds"]
-                elif etype == "ragas":
-                    meta["ragas"] = {"faithfulness": event.get("faithfulness"),
-                                     "answer_relevancy": event.get("answer_relevancy")}
                 elif etype == "final":
                     meta["route"] = event.get("route")
                     meta["total"] = event.get("total")
                     meta["ttft"] = event.get("ttft", meta.get("ttft"))
                     meta["final"] = event.get("response")
-                    meta["ragas"] = event.get("ragas", meta.get("ragas"))
 
     with st.chat_message("assistant"):
         try:
@@ -123,7 +115,6 @@ if user_input:
         "route": meta.get("route"),
         "ttft": meta.get("ttft"),
         "total": meta.get("total"),
-        "ragas": meta.get("ragas"),
         "feedback_given": False
     })
     st.rerun()

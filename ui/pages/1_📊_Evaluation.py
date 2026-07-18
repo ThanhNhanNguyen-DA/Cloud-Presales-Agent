@@ -1,173 +1,176 @@
 """
-Evaluation page (sidebar) — RAG quality scored against the RAGAS framework.
+Monitoring dashboard (sidebar) — live system quality from the interaction logs.
 
-RAGAS (Retrieval-Augmented Generation Assessment) is a widely used open standard for
-evaluating RAG systems along four core metrics. This page presents a design-based
-assessment of the Cloud Presales Agent against those metrics, with scores and tables,
-plus the exact procedure to compute the metrics live on a labelled test set.
+Every answer the backend produces is scored (live RAGAS) and logged asynchronously to
+`cloud_interaction_logs`. This page reads that table and turns it into an operational
+view: how questions are routed, how often the grounding grader catches a problem
+(hallucination / retry rate), and how faithfulness & answer relevancy trend over time.
 
-The scores here are an engineering assessment tied to the system's architecture — they
-are NOT yet measured on a labelled dataset. The "How to run live RAGAS" section below
-shows how to replace them with computed numbers.
+It also shows the latest offline batch-RAGAS run (data/eval/latest_ragas.json) if the
+`scripts/run_ragas_eval.py` job has produced one.
+
+Reads Supabase directly via a lightweight helper (no embedding model is loaded here).
 """
+
+import json
+import pathlib
+import sys
 
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Evaluation · RAGAS", page_icon="📊", layout="centered")
+# Make the repo root importable when Streamlit runs this page from the ui/ directory.
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-st.title("📊 System Evaluation — RAGAS")
+st.set_page_config(page_title="Evaluation · Monitoring", page_icon="📊", layout="wide")
+
+st.title("📊 System Monitoring — live quality")
 st.caption(
-    "RAG quality scored against the RAGAS standard (Faithfulness, Answer Relevancy, "
-    "Context Precision, Context Recall). Scores below are a design-based assessment, "
-    "not yet measured on a labelled set — see methodology at the bottom."
+    "Read from cloud_interaction_logs: routing mix, grounding-grader catch/retry rate, "
+    "and live RAGAS (faithfulness, answer relevancy) over time. Metrics are scored in the "
+    "background after each answer, so they never slow the chat."
 )
 
-# --- RAGAS metric assessment (0.0–1.0) -------------------------------------------------
-METRICS = [
-    {
-        "Metric": "Faithfulness",
-        "Score": 0.80,
-        "Measures": "Is every claim in the answer grounded in the retrieved context (no hallucination)?",
-        "Assessment": "A decoupled Grounding Grader cross-checks numeric claims against the raw tool/RAG "
-                      "output and retries or warns on mismatch. Strong for numbers; textual claims "
-                      "(SLA wording, legal terms) are not yet grounding-checked.",
-    },
-    {
-        "Metric": "Answer Relevancy",
-        "Score": 0.82,
-        "Measures": "Does the answer actually address the user's question, without padding or drift?",
-        "Assessment": "The supervisor routes each question to a focused specialist agent, and system "
-                      "prompts force tool use and same-language replies — keeping answers on-topic.",
-    },
-    {
-        "Metric": "Context Precision",
-        "Score": 0.72,
-        "Measures": "Are the retrieved chunks relevant, and ranked with the best ones first?",
-        "Assessment": "Structure-aware chunking (DOCX by heading + tables, PDF per case study) raises "
-                      "chunk coherence. No re-ranker yet, and the similarity threshold (0.6) is fixed.",
-    },
-    {
-        "Metric": "Context Recall",
-        "Score": 0.65,
-        "Measures": "Does the retrieved context contain everything needed to answer fully?",
-        "Assessment": "Limited mainly by corpus completeness (one document group still pending ingestion) "
-                      "and a small top-k (match_count = 3). Expected to rise as the corpus is completed.",
-    },
-]
+
+@st.cache_data(ttl=30)
+def _fetch_logs(limit: int = 1000):
+    """Load recent interaction logs (cached briefly so refreshes are cheap)."""
+    try:
+        from app.evaluation.log_store import load_recent_logs
+        return load_recent_logs(limit), None
+    except Exception as e:  # noqa: BLE001 - surface a friendly hint instead of a traceback
+        return [], str(e)
 
 
-def rating(score: float) -> str:
-    if score >= 0.85:
-        return "🟢 Excellent"
-    if score >= 0.75:
-        return "🟡 Good"
-    if score >= 0.65:
-        return "🟠 Fair"
-    return "🔴 Needs work"
+def _num(series):
+    return pd.to_numeric(series, errors="coerce")
 
 
-overall = round(sum(m["Score"] for m in METRICS) / len(METRICS), 2)
+colf, colr = st.columns([3, 1])
+with colr:
+    if st.button("🔄 Refresh"):
+        _fetch_logs.clear()
+        st.rerun()
 
-# --- Live scores measured this session (shared via st.session_state) -------------------
-st.subheader("🟢 Live scores — measured this session")
-history = st.session_state.get("chat_history", [])
-live = [m["ragas"] for m in history if m.get("role") == "assistant" and m.get("ragas")]
-faiths = [r["faithfulness"] for r in live if isinstance(r.get("faithfulness"), (int, float))]
-rels = [r["answer_relevancy"] for r in live if isinstance(r.get("answer_relevancy"), (int, float))]
+rows, err = _fetch_logs()
 
-if not live:
-    st.info("No answers scored yet. Ask questions on the main chat page — each answer is "
-            "scored live (faithfulness + answer relevancy) and averaged here.")
-else:
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Answers scored", len(live))
-    c2.metric("Avg faithfulness", f"{sum(faiths) / len(faiths):.2f}" if faiths else "—",
-              help="LLM-judged, over the answers that had retrieved context.")
-    c3.metric("Avg answer relevancy", f"{sum(rels) / len(rels):.2f}" if rels else "—",
-              help="Question↔answer embedding similarity.")
-    st.caption("Reference-free RAGAS, computed live per answer. Context precision/recall "
-               "need a labelled set and are shown as a design assessment below.")
+if err:
+    st.error(
+        "Could not read the interaction logs.\n\n"
+        f"`{err}`\n\n"
+        "Make sure the `cloud_interaction_logs` table exists (re-run the new part of "
+        "`sql/schema.sql`) and that Supabase credentials are set in `.env`."
+    )
+    st.stop()
 
-st.divider()
+if not rows:
+    st.info(
+        "No interactions logged yet. Ask a few questions on the main chat page — each "
+        "answer is scored and logged in the background, then appears here. If you have "
+        "been chatting and still see nothing, confirm the `cloud_interaction_logs` table "
+        "was created from `sql/schema.sql`."
+    )
+    st.stop()
 
-# --- Design-based assessment (baseline across all four metrics) ------------------------
-st.subheader("🎨 Design-based assessment")
-col1, col2 = st.columns([1, 2])
-with col1:
-    st.metric("Overall RAGAS score", f"{overall:.2f}", help="Unweighted mean of the four metrics (0–1).")
-with col2:
-    st.progress(overall, text=f"{rating(overall)} · {int(overall * 100)} / 100")
+df = pd.DataFrame(rows)
+df["created_at"] = pd.to_datetime(df.get("created_at"), errors="coerce", utc=True)
+df = df.sort_values("created_at")
+for col in ["faithfulness", "answer_relevancy", "ttft_seconds", "total_seconds", "retry_count"]:
+    if col in df:
+        df[col] = _num(df[col])
 
-st.divider()
+# --- Scorecard -------------------------------------------------------------------------
+total = len(df)
+faiths = df["faithfulness"].dropna() if "faithfulness" in df else pd.Series(dtype=float)
+rels = df["answer_relevancy"].dropna() if "answer_relevancy" in df else pd.Series(dtype=float)
+graded = df["grading_passed"].dropna() if "grading_passed" in df else pd.Series(dtype=object)
+pass_rate = (graded == True).mean() if len(graded) else None  # noqa: E712 - pandas mask
+retried = (df["retry_count"].fillna(0) > 0).mean() if "retry_count" in df else None
 
-# --- Per-metric bars -------------------------------------------------------------------
-st.subheader("Scores by metric")
-for m in METRICS:
-    st.progress(m["Score"], text=f"{m['Metric']} — {m['Score']:.2f}  ({rating(m['Score'])})")
-
-# --- Detail table ----------------------------------------------------------------------
 st.subheader("Scorecard")
-df = pd.DataFrame(
-    [
-        {"Metric": m["Metric"], "Score": f"{m['Score']:.2f}", "Rating": rating(m["Score"]),
-         "What it measures": m["Measures"], "Assessment": m["Assessment"]}
-        for m in METRICS
-    ]
-)
-st.dataframe(df, hide_index=True, use_container_width=True)
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("Interactions", total)
+c2.metric("Avg faithfulness", f"{faiths.mean():.2f}" if len(faiths) else "—",
+          help="LLM-judged fraction of claims supported by retrieved context (answers with context only).")
+c3.metric("Avg answer relevancy", f"{rels.mean():.2f}" if len(rels) else "—",
+          help="Question↔answer embedding similarity.")
+c4.metric("Grounding pass rate", f"{pass_rate*100:.0f}%" if pass_rate is not None else "—",
+          help="Share of graded answers the grounding grader passed (higher = fewer numeric mismatches).")
+c5.metric("Answers needing retry", f"{retried*100:.0f}%" if retried is not None else "—",
+          help="Share of answers that triggered a grading retry.")
 
-# --- Roadmap to raise the weakest metrics ---------------------------------------------
-st.subheader("Priority actions to raise the score")
-st.dataframe(
-    pd.DataFrame([
-        {"Target metric": "Context Recall", "Action": "Finish ingesting the pending document group; raise match_count.", "Impact": "High"},
-        {"Target metric": "Context Precision", "Action": "Add a lightweight re-ranker over the top-k chunks.", "Impact": "Medium"},
-        {"Target metric": "Faithfulness", "Action": "Extend the grader to check textual grounding, not only numbers.", "Impact": "Medium"},
-    ]),
-    hide_index=True, use_container_width=True,
-)
+st.divider()
 
-# --- Methodology / how to compute live -------------------------------------------------
-with st.expander("Methodology & how to run live RAGAS"):
-    st.markdown(
-        """
-**How these scores were derived.** They are an engineering assessment mapped to each
-RAGAS metric from the system's design (grounding grader, routing, chunking strategy,
-corpus status), *not* numbers measured on a labelled dataset. Treat them as a relative
-priority signal.
+# --- Routing mix & grounding outcome ---------------------------------------------------
+left, right = st.columns(2)
+with left:
+    st.subheader("Routing mix")
+    if "route" in df:
+        route_counts = df["route"].fillna("unknown").value_counts()
+        st.bar_chart(route_counts)
+    else:
+        st.caption("No route data.")
+with right:
+    st.subheader("Grounding grader outcome")
+    if "grading_passed" in df:
+        outcome = df["grading_passed"].map({True: "passed", False: "failed"}).fillna("not graded")
+        st.bar_chart(outcome.value_counts())
+    else:
+        st.caption("No grading data.")
 
-**How to replace them with computed numbers.** RAGAS metrics are computed from a small
-evaluation set of `(question, ground_truth, retrieved_contexts, answer)` records, using
-an LLM as judge:
+st.divider()
 
-```bash
-pip install ragas datasets
-```
+# --- RAGAS over time -------------------------------------------------------------------
+st.subheader("Live RAGAS over time")
+ts = df.dropna(subset=["created_at"]).set_index("created_at")
+cols_present = [c for c in ["faithfulness", "answer_relevancy"] if c in ts and ts[c].notna().any()]
+if cols_present:
+    st.line_chart(ts[cols_present])
+else:
+    st.caption("Not enough scored answers with context yet to plot a trend.")
 
-```python
-from datasets import Dataset
-from ragas import evaluate
-from ragas.metrics import (
-    faithfulness, answer_relevancy, context_precision, context_recall,
-)
+# --- Latency ---------------------------------------------------------------------------
+if "ttft_seconds" in df and df["ttft_seconds"].notna().any():
+    st.subheader("Latency (seconds)")
+    la, lb = st.columns(2)
+    la.metric("Avg TTFT", f"{df['ttft_seconds'].dropna().mean():.2f}s")
+    if "total_seconds" in df and df["total_seconds"].notna().any():
+        lb.metric("Avg total", f"{df['total_seconds'].dropna().mean():.2f}s")
 
-# For each eval question: call the graph, capture the answer AND the retrieved chunks,
-# and pair with a human-written ground-truth answer.
-data = Dataset.from_dict({
-    "question":  [...],
-    "answer":    [...],   # final_response from the graph
-    "contexts":  [...],   # list of retrieved chunk texts per question
-    "ground_truth": [...],
-})
-result = evaluate(data, metrics=[faithfulness, answer_relevancy,
-                                 context_precision, context_recall])
-print(result)  # -> plug these numbers into METRICS above
-```
+st.divider()
 
-Building the ~30–50 question labelled set from real presales queries is the main
-remaining task; once it exists, this page can display live-computed scores.
-"""
+# --- Recent interactions ---------------------------------------------------------------
+st.subheader("Recent interactions")
+show_cols = [c for c in ["created_at", "route", "user_query", "grading_passed",
+                         "retry_count", "faithfulness", "answer_relevancy", "ttft_seconds"]
+             if c in df]
+recent = df.sort_values("created_at", ascending=False).head(50)[show_cols]
+st.dataframe(recent, hide_index=True, use_container_width=True)
+
+st.divider()
+
+# --- Latest offline batch-RAGAS run ----------------------------------------------------
+st.subheader("Offline batch RAGAS (ground-truth set)")
+batch_path = ROOT / "data" / "eval" / "latest_ragas.json"
+if batch_path.exists():
+    batch = json.loads(batch_path.read_text(encoding="utf-8"))
+    st.caption(f"Last run: {batch.get('run_at', 'unknown')} · {batch.get('num_samples', '?')} samples")
+    agg = batch.get("aggregate", {})
+    if agg:
+        cols = st.columns(len(agg))
+        for col, (metric, value) in zip(cols, agg.items()):
+            col.metric(metric.replace("_", " ").title(),
+                       f"{value:.2f}" if isinstance(value, (int, float)) else "—")
+    if batch.get("per_sample"):
+        with st.expander("Per-question results"):
+            st.dataframe(pd.DataFrame(batch["per_sample"]), hide_index=True, use_container_width=True)
+else:
+    st.info(
+        "No batch run found. Compute full-quality RAGAS on a labelled set with:\n\n"
+        "```bash\npython -m scripts.run_ragas_eval\n```\n\n"
+        "It writes `data/eval/latest_ragas.json`, which appears here."
     )
 
-st.caption("Standard: RAGAS · assessment dated 2026-07-17 · scores are design-based pending a labelled eval set.")
+st.caption("Standard: RAGAS-style metrics (project's Groq judge + Qwen embeddings). Live scores are reference-free; batch adds ground-truth-based metrics.")

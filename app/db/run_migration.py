@@ -63,8 +63,9 @@ def print_migration_instructions():
     
     print("\n" + "="*80)
     print("✅ After running both queries:")
-    print("   - 5 tables created (cloud_documents, cloud_competitor_mapping,")
-    print("     cloud_service_pricing, cloud_feedback_memory, cloud_conversation_history)")
+    print("   - 6 tables created (cloud_documents, cloud_competitor_mapping,")
+    print("     cloud_service_pricing, cloud_feedback_memory, cloud_conversation_history,")
+    print("     cloud_interaction_logs)")
     print("   - 2 RPC functions created (match_past_experience, match_cloud_documents)")
     print("   - Seed data inserted (5 competitor mappings, 5 pricing rows)")
     print("="*80 + "\n")

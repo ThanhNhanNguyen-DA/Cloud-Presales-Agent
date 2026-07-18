@@ -23,6 +23,7 @@ Design notes
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Dict, Optional
 
@@ -91,8 +92,24 @@ def faithfulness(answer: str, context: str) -> Optional[float]:
 
 
 def evaluate_answer(question: str, answer: str, context: str = "") -> Dict[str, Optional[float]]:
-    """Compute the live RAGAS metrics for one (question, answer, context) triple."""
+    """Compute the live RAGAS metrics for one (question, answer, context) triple (blocking)."""
     return {
         "faithfulness": faithfulness(answer, context),
         "answer_relevancy": answer_relevancy(question, answer),
     }
+
+
+# --- Async variants -----------------------------------------------------------------
+# The judge LLM call and the embedding forward-pass are both blocking/CPU-bound, so we
+# offload them to worker threads with asyncio.to_thread. This keeps the FastAPI event
+# loop free while evaluation runs in the background (see app/evaluation/interaction_log.py).
+# The two metrics are independent, so they run concurrently with asyncio.gather.
+
+
+async def evaluate_answer_async(question: str, answer: str, context: str = "") -> Dict[str, Optional[float]]:
+    """Async, non-blocking version of `evaluate_answer` — the two metrics run concurrently."""
+    fth, rel = await asyncio.gather(
+        asyncio.to_thread(faithfulness, answer, context),
+        asyncio.to_thread(answer_relevancy, question, answer),
+    )
+    return {"faithfulness": fth, "answer_relevancy": rel}

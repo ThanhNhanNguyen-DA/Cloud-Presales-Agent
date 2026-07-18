@@ -5,7 +5,7 @@ The graph and the feedback tool are mocked so the suite is deterministic and doe
 not require a live Groq/Supabase connection (the same pattern as the other tests).
 """
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 from app.main import app
 
@@ -19,9 +19,12 @@ def test_health_check():
 
 
 def test_chat_endpoint():
-    mock_result = {"route": "general", "final_response": "Hello! How can I help you today?"}
-    with patch("app.main.graph") as mock_graph:
-        mock_graph.invoke.return_value = mock_result
+    """The endpoint is async and runs the graph via ainvoke; evaluation/logging is backgrounded."""
+    mock_result = {"route": "general", "final_response": "Hello! How can I help you today?",
+                   "raw_tool_output": None, "grading_passed": None, "retry_count": 0}
+    with patch("app.main.graph") as mock_graph, \
+         patch("app.main.evaluate_and_log", new=AsyncMock()) as mock_log:
+        mock_graph.ainvoke = AsyncMock(return_value=mock_result)
         response = client.post("/chat", json={"query": "Hello"})
 
     assert response.status_code == 200
@@ -29,6 +32,8 @@ def test_chat_endpoint():
     assert "response" in data
     assert len(data["response"]) > 0
     assert data["route"] == "general"
+    # Evaluation was scheduled as a background task, not run inline.
+    mock_log.assert_awaited()
 
 
 def test_chat_stream_endpoint():
@@ -37,7 +42,8 @@ def test_chat_stream_endpoint():
         yield ("updates", {"supervisor": {"route": "general", "final_response": None}})
         yield ("updates", {"general": {"route": "general", "final_response": "Hi there!"}})
 
-    with patch("app.main.graph") as mock_graph:
+    with patch("app.main.graph") as mock_graph, \
+         patch("app.main.evaluate_and_log", new=AsyncMock()):
         mock_graph.stream.side_effect = fake_stream
         response = client.post("/chat/stream", json={"query": "Hello"})
 
