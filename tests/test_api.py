@@ -32,9 +32,10 @@ def test_chat_endpoint():
 
 
 def test_chat_stream_endpoint():
-    def fake_stream(_state):
-        yield {"supervisor": {"route": "general", "final_response": None}}
-        yield {"general": {"route": "general", "final_response": "Hi there!"}}
+    # With stream_mode=["updates","messages"], the graph yields (mode, payload) tuples.
+    def fake_stream(_state, **_kwargs):  # **_kwargs absorbs stream_mode=[...]
+        yield ("updates", {"supervisor": {"route": "general", "final_response": None}})
+        yield ("updates", {"general": {"route": "general", "final_response": "Hi there!"}})
 
     with patch("app.main.graph") as mock_graph:
         mock_graph.stream.side_effect = fake_stream

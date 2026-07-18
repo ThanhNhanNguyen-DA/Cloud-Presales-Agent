@@ -18,6 +18,7 @@ import time
 
 from app.graph.builder import build_graph
 from app.tools.memory_tools import save_user_feedback
+from app.tools.conversation_tools import load_conversation_history, save_conversation_turn
 from app.evaluation.ragas_live import evaluate_answer
 
 app = FastAPI(title="Cloud Presales Agentic RAG Chatbot API")
@@ -34,6 +35,7 @@ graph = build_graph()
 
 class ChatRequest(BaseModel):
     query: str
+    session_id: Optional[str] = None  # groups turns of one conversation; None = stateless
 
 
 class ChatResponse(BaseModel):
@@ -49,10 +51,17 @@ class FeedbackRequest(BaseModel):
     correction: Optional[str] = None
 
 
-def _initial_state(query: str) -> dict:
-    """Build a fresh GraphState dict for a single request."""
+def _initial_state(query: str, session_id: Optional[str] = None) -> dict:
+    """
+    Build a fresh GraphState dict for a single request.
+
+    Loads the recent turns of `session_id` (if given) into `messages` so the agents
+    and supervisor can answer follow-up questions in context. With no session_id the
+    call is stateless (empty history) — unchanged from before multi-turn memory.
+    """
     return {
-        "messages": [],
+        "messages": load_conversation_history(session_id),
+        "session_id": session_id,
         "user_query": query,
         "route": None,
         "retrieved_experience": None,
@@ -64,15 +73,24 @@ def _initial_state(query: str) -> dict:
     }
 
 
+def _persist_turn(session_id: Optional[str], query: str, response: Optional[str], route: Optional[str]) -> None:
+    """Append the user question and the assistant answer to the conversation memory (no-op if stateless)."""
+    if not session_id:
+        return
+    save_conversation_turn(session_id, "user", query)
+    save_conversation_turn(session_id, "assistant", response or "", route=route)
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
     """Run the full graph and return the final answer in one shot."""
-    result = graph.invoke(_initial_state(request.query))
+    result = graph.invoke(_initial_state(request.query, request.session_id))
     ragas = evaluate_answer(
         request.query,
         result.get("final_response") or "",
         result.get("raw_tool_output") or "",
     )
+    _persist_turn(request.session_id, request.query, result.get("final_response"), result.get("route"))
     return ChatResponse(route=result["route"], response=result["final_response"], ragas=ragas)
 
 
@@ -113,7 +131,7 @@ def chat_stream(request: ChatRequest):
 
         # stream_mode=["updates","messages"] interleaves node-completion updates with
         # per-token LLM message chunks. Each item is (mode, payload).
-        for mode, payload in graph.stream(_initial_state(request.query),
+        for mode, payload in graph.stream(_initial_state(request.query, request.session_id),
                                           stream_mode=["updates", "messages"]):
             if mode == "updates":
                 for node_name, node_state in payload.items():
@@ -133,6 +151,9 @@ def chat_stream(request: ChatRequest):
                     ttft = time.perf_counter() - t0
                     yield f"data: {json.dumps({'type': 'ttft', 'seconds': round(ttft, 3)}, ensure_ascii=False)}\n\n"
                 yield f"data: {json.dumps({'type': 'token', 'text': text}, ensure_ascii=False)}\n\n"
+
+        # Persist the completed turn to the conversation memory (no-op if stateless).
+        _persist_turn(request.session_id, request.query, final_response, route)
 
         # Live RAGAS: computed after the answer is complete, so it never delays TTFT.
         ragas = evaluate_answer(request.query, final_response or "", raw_output or "")

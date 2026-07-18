@@ -37,11 +37,14 @@ def document_agent_node(state: GraphState) -> GraphState:
     if experience_context:
         system_content += f"\n\n{experience_context}\nYou MUST follow the correction above if it is relevant."
 
+    # Prior turns (if any) let the agent resolve follow-ups like "and its SLA?".
+    history = state.get("messages") or []
     messages = [
         SystemMessage(content=system_content),
+        *history,
         HumanMessage(content=state["user_query"])
     ]
-    
+
     ai_msg = llm_with_tools.invoke(messages)
     messages.append(ai_msg)
 

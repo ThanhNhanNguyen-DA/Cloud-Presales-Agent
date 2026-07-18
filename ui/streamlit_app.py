@@ -7,6 +7,7 @@ closing the full self-learning loop.
 """
 
 import json
+import uuid
 
 import streamlit as st
 import requests
@@ -19,6 +20,10 @@ st.caption("Presales support system: cost/sizing calculation, SLA/security docum
 
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []  # list of dict: {role, content, route, feedback_given}
+
+# Conversation id sent with every request so the backend can load/save multi-turn memory.
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
 
 # Render chat history
 for idx, msg in enumerate(st.session_state.chat_history):
@@ -78,7 +83,8 @@ if user_input:
 
     def stream_answer():
         """Yield answer tokens from the SSE endpoint; capture timing/route in `meta`."""
-        with requests.post(f"{API_BASE_URL}/chat/stream", json={"query": user_input},
+        with requests.post(f"{API_BASE_URL}/chat/stream",
+                           json={"query": user_input, "session_id": st.session_state.session_id},
                            stream=True, timeout=120) as resp:
             resp.raise_for_status()
             for line in resp.iter_lines(decode_unicode=True):
@@ -125,7 +131,10 @@ if user_input:
 with st.sidebar:
     st.subheader("System info")
     st.write("Backend API:", API_BASE_URL)
+    st.write("Session:", st.session_state.session_id[:8])
     st.write("Conversation turns:", len([m for m in st.session_state.chat_history if m["role"] == "user"]))
     if st.button("Clear chat history"):
+        # Start a brand-new conversation so the backend memory is not carried over.
         st.session_state.chat_history = []
+        st.session_state.session_id = str(uuid.uuid4())
         st.rerun()

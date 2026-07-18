@@ -55,6 +55,21 @@ CREATE TABLE cloud_feedback_memory (
 CREATE INDEX idx_feedback_memory_embedding ON cloud_feedback_memory
     USING ivfflat (query_embedding vector_cosine_ops) WITH (lists = 100);
 
+-- Table 5: cloud_conversation_history — multi-turn chat memory. One row per message
+-- (user or assistant), grouped by session_id, so a follow-up question can be answered
+-- with the context of earlier turns in the same conversation.
+CREATE TABLE cloud_conversation_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id TEXT NOT NULL,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('user', 'assistant')),
+    content TEXT NOT NULL,
+    route VARCHAR(20),  -- the route chosen for an assistant turn (NULL for user turns)
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Fetch the recent turns of one conversation in chronological order.
+CREATE INDEX idx_conversation_session ON cloud_conversation_history (session_id, created_at);
+
 -- RPC Function: match_past_experience — computes Cosine Similarity to find similar past lessons learned
 CREATE OR REPLACE FUNCTION match_past_experience (
   query_embedding vector(512),

@@ -23,8 +23,9 @@ def test_graph_runs_end_to_end():
         else:
             return MagicMock(content="general")
     
-    def mock_general_response(query):
-        """Mock general node response."""
+    def mock_general_response(messages):
+        """Mock general node response. `messages` is [System, *history, Human]."""
+        query = getattr(messages[-1], "content", str(messages)) if isinstance(messages, list) else str(messages)
         if "backup" in query.lower():
             return MagicMock(content="The backup will take approximately 0.78 hours (about 47 minutes) for a 10GB backup over a 100Mbps connection.")
         elif "sla" in query.lower():

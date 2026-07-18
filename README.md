@@ -89,6 +89,7 @@ All six go through one wrapper, [`app/llm.py`](app/llm.py), which holds an order
 | `cloud_competitor_mapping` | AWS/Azure/GCP → local service mapping + migration difficulty |
 | `cloud_service_pricing` | VM / storage pricing reference rows |
 | `cloud_feedback_memory` | Episodic memory: query/response + `is_positive` + `user_correction` + `query_embedding` |
+| `cloud_conversation_history` | Multi-turn chat memory: one row per message (`session_id`, `role`, `content`, `route`) so follow-up questions keep context |
 
 Two RPC functions (`match_cloud_documents`, `match_past_experience`) do cosine-similarity search. Text is vectorised by **Qwen3-Embedding-0.6B**, truncated via Matryoshka to **512 dimensions** and L2-normalised. Documents are chunked by **three structure-aware strategies** (DOCX by heading with tables preserved; PDF per customer case study; recursive character splitting for the rest) rather than blind fixed-length cuts.
 
@@ -163,9 +164,16 @@ curl -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
 | Method | Path | Body | Returns |
 |--------|------|------|---------|
 | `GET`  | `/health` | — | `{"status":"ok"}` |
-| `POST` | `/chat` | `{"query":"..."}` | `{"route":"...","response":"..."}` |
-| `POST` | `/chat/stream` | `{"query":"..."}` | **SSE**: `progress` per node → `ttft` → `token` per token → `final` |
+| `POST` | `/chat` | `{"query":"...", "session_id"?:"..."}` | `{"route":"...","response":"..."}` |
+| `POST` | `/chat/stream` | `{"query":"...", "session_id"?:"..."}` | **SSE**: `progress` per node → `ttft` → `token` per token → `final` |
 | `POST` | `/feedback` | `{"query","response","is_positive","correction"?}` | `{"message":"..."}` |
+
+> **Multi-turn memory:** pass a stable `session_id` on `/chat` and `/chat/stream` to keep a
+> conversation in context — the backend loads the recent turns (sliding window) from the
+> `cloud_conversation_history` table before answering and saves the new turn after, so
+> follow-ups like *"and the monthly cost?"* or *"what about GCP?"* resolve correctly. Omit
+> `session_id` for a stateless, single-shot call. The Streamlit UI generates one per session
+> and starts a fresh one when you click **Clear chat history**.
 
 ## Evaluation (RAGAS)
 
@@ -185,7 +193,7 @@ cloud-presales-agent/
 │   ├── llm.py                     # Groq wrapper with automatic model fallback
 │   ├── main.py                    # FastAPI: /chat, /chat/stream, /feedback, /health
 │   ├── db/                        # Supabase client + migration helper
-│   ├── tools/                     # calculation, RAG, competitor, memory, embedding
+│   ├── tools/                     # calculation, RAG, competitor, memory, conversation, embedding
 │   ├── agents/                    # calculator, document, competitor agents
 │   ├── graders/                   # grounding (hallucination) grader
 │   └── graph/                     # state, supervisor (routing), builder (graph)
@@ -203,4 +211,4 @@ cloud-presales-agent/
 ```
 
 ## Extend it
-The natural next step is to move from *answering* to *doing*: add action-taking agents (e.g. draft and save a quote) on top of multi-turn conversation memory, and compute live RAGAS scores from a labelled set of real presales queries. Contributions and issues welcome.
+Multi-turn conversation memory is now in place (see the note above). The natural next step is to move from *answering* to *doing*: add action-taking agents (e.g. draft and save a quote) on top of it, and compute live RAGAS scores from a labelled set of real presales queries. Contributions and issues welcome.

@@ -7,6 +7,7 @@ LangGraph builder: constructs the graph with supervisor and specialized agents.
 """
 
 from langgraph.graph import StateGraph, END
+from langchain_core.messages import HumanMessage, SystemMessage
 from app.llm import get_chat_llm
 from app.graph.state import GraphState
 from app.graph.supervisor import supervisor_node
@@ -18,13 +19,24 @@ from app.graders.self_rag_grader import grounding_grader_node
 
 llm = get_chat_llm(temperature=0.3)
 
+GENERAL_SYSTEM_PROMPT = """You are a helpful assistant for the Presales Cloud system.
+Answer greetings and general questions naturally, in the SAME language as the user.
+Use the conversation history to stay consistent with what was already discussed."""
+
 
 def general_node(state: GraphState) -> GraphState:
     """
     General-purpose response node. Answers questions directly via the LLM.
     Used for general queries that don't require specialized agents.
+    Includes the recent conversation so short follow-ups stay in context.
     """
-    response = llm.invoke(state["user_query"])
+    history = state.get("messages") or []
+    messages = [
+        SystemMessage(content=GENERAL_SYSTEM_PROMPT),
+        *history,
+        HumanMessage(content=state["user_query"]),
+    ]
+    response = llm.invoke(messages)
     state["agent_response"] = response.content
     state["final_response"] = response.content
     return state

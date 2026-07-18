@@ -10,7 +10,11 @@ class GraphState(TypedDict):
     State maintained throughout the graph execution.
     
     Fields:
-        messages: Conversation history (list of messages).
+        messages: Prior conversation turns (LangChain messages, oldest first) loaded
+            from the multi-turn memory for the current session. Read-only within the
+            graph — the API layer fills it before invocation and persists the new turn
+            afterwards. Empty for a stateless call (no session_id).
+        session_id: Conversation identifier used to load/save multi-turn history.
         user_query: The original question from the user.
         route: The agent/handler chosen by supervisor (calculator, document, competitor, general).
         retrieved_experience: Lessons learned retrieved from feedback memory (Phase 7).
@@ -21,6 +25,7 @@ class GraphState(TypedDict):
         retry_count: Number of grading retries performed, to bound the retry loop (Phase 8).
     """
     messages: List[Any]
+    session_id: Optional[str]
     user_query: str
     route: Optional[str]
     retrieved_experience: Optional[str]
