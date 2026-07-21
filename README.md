@@ -1,4 +1,4 @@
-# ☁️ Cloud Presales Agent
+#  Cloud Presales Agent
 
 **A multi-agent Agentic RAG assistant for cloud presales — it routes each question to a specialist, fact-checks every number before it reaches the customer, and learns from human corrections.**
 
@@ -6,13 +6,13 @@ Built with **LangGraph** (orchestration), **Groq / Llama 3.3 70B** (LLM), **Qwen
 
 ---
 
-## 😩 The Pain
+##  The Pain
 
 Presales engineers answer the same technical questions over and over — SLAs, security posture, VM sizing, backup cost, "what's your equivalent of AWS S3?" — and each answer requires digging through multiple documents. Worse, much of it is **numbers**: a backup-duration estimate, a VM spec, a monthly cost. **A single wrong number goes straight into a customer quote.**
 
 Off-the-shelf chatbots make this worse, not better. They **hallucinate figures** with total confidence, they can't tell an SLA question from a pricing calculation, and they never get better — the same mistake resurfaces next week. For presales, "usually right" is not good enough.
 
-## ✅ The Solution
+##  The Solution
 
 **Cloud Presales Agent** is a small "team of specialists" behind one chat box:
 
@@ -23,7 +23,7 @@ Off-the-shelf chatbots make this worse, not better. They **hallucinate figures**
 
 The result: answers that are routed correctly, grounded in real data, and that improve over time.
 
-## 🔬 Proof
+##  Proof
 
 Everything below is implemented and in the repository:
 
@@ -97,7 +97,7 @@ Two RPC functions (`match_cloud_documents`, `match_past_experience`) do cosine-s
 
 ---
 
-## 🚀 Get started
+##  Get started
 
 ### Prerequisites
 - **Python 3.10+**
