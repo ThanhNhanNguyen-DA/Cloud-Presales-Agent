@@ -2,7 +2,7 @@
 
 **A multi-agent Agentic RAG assistant for cloud presales — it routes each question to a specialist, fact-checks every number before it reaches the customer, and learns from human corrections.**
 
-Built with **LangGraph** (orchestration), **Groq / Llama 3.3 70B** (LLM), **Qwen3-Embedding** running locally (vectorisation), **Supabase / pgvector** (vector store + structured data), **FastAPI** (API) and **Streamlit** (UI, with a built-in RAGAS evaluation page).
+Built with **LangGraph** (orchestration), **Groq / Llama 3.3 70B** (LLM), **Qwen3-Embedding** running locally (vectorisation), **Supabase / pgvector** (vector store + structured data), **FastAPI** (API) and **Streamlit** (chat UI), plus an offline RAGAS evaluation script.
 
 ---
 
@@ -35,8 +35,8 @@ Everything below is implemented and in the repository:
 | The system self-corrects from 👍/👎 feedback | [`app/tools/memory_tools.py`](app/tools/memory_tools.py), [`ui/streamlit_app.py`](ui/streamlit_app.py) |
 | Real documents are chunked by structure, not blindly | [`scripts/docx_chunker.py`](scripts/docx_chunker.py) (headings + tables), [`scripts/pdf_casestudy_chunker.py`](scripts/pdf_casestudy_chunker.py) (per case study) |
 | Competitor data is crawled from real sources, never fabricated | [`scripts/crawl_competitors.py`](scripts/crawl_competitors.py) |
-| Quality is measured against an international standard (RAGAS) | Evaluation page on the sidebar: [`ui/pages/1_📊_Evaluation.py`](ui/pages/1_📊_Evaluation.py) |
-| The service stays up when a model hits its rate limit | [`app/llm.py`](app/llm.py) — automatic model fallback |
+| Quality is measured against an international standard (RAGAS) | Offline batch evaluator: [`scripts/run_ragas_eval.py`](scripts/run_ragas_eval.py) + [`app/evaluation/metrics.py`](app/evaluation/metrics.py) |
+| The service stays up when a model hits its rate limit | [`app/llm.py`](app/llm.py) — model fallback + wait-and-retry |
 | It runs without live credentials for testing | [`tests/`](tests/) — Groq/Supabase mocked, `pytest -q` |
 
 ### How it works
@@ -68,7 +68,7 @@ Everything below is implemented and in the repository:
 
 ### Where the LLM is used
 
-The LLM (Groq / Llama 3.3 70B) is called at exactly **six** places. Vectorisation is **not** one of them — embeddings run locally on Qwen, so the Groq key only pays for reasoning.
+The LLM (Groq / Llama 3.3 70B) is called at exactly **six** places in the request path (a seventh, the RAGAS judge, runs only in the offline evaluator). Vectorisation is **not** one of them — embeddings run locally on Qwen, so the Groq key only pays for reasoning.
 
 | # | Task | File | Temperature | Mechanism |
 |---|------|------|:-----------:|-----------|
@@ -79,7 +79,9 @@ The LLM (Groq / Llama 3.3 70B) is called at exactly **six** places. Vectorisatio
 | 5 | General answer | [`graph/builder.py`](app/graph/builder.py) | 0.3 | Direct, no tools |
 | 6 | Grounding grader | [`graders/self_rag_grader.py`](app/graders/self_rag_grader.py) | 0 | Prompt → PASS/FAIL |
 
-All six go through one wrapper, [`app/llm.py`](app/llm.py), which holds an ordered model chain (`llama-3.3-70b-versatile` → `llama-3.1-8b-instant`) and **switches model instantly when one is rate-limited** (the client's own slow retry loop is disabled).
+All these calls go through one wrapper, [`app/llm.py`](app/llm.py), which holds an ordered model chain (`llama-3.3-70b-versatile` → `llama-3.1-8b-instant`): it **switches to the next model the moment one is rate-limited**, and if every model is exhausted it **waits out the limit** (honouring the server's `retry-after`) and retries — so a sustained free-tier rate limit rides out instead of crashing.
+
+Every prompt in the system follows the same recipe — **role · context · task · output format · anti-hallucination constraints** — so outputs are consistent and easy to parse (e.g. the router returns one word, the grader returns `PASS`/`FAIL`, the specialists return a structured answer).
 
 ### The data
 
@@ -148,7 +150,7 @@ python -m scripts.crawl_competitors --ingest
 # Terminal 1 — backend
 uvicorn app.main:app --reload --port 8000        # docs at http://localhost:8000/docs
 
-# Terminal 2 — UI (chat + Evaluation page in the sidebar)
+# Terminal 2 — chat UI
 streamlit run ui/streamlit_app.py
 ```
 Quick check:
@@ -189,35 +191,28 @@ project's own Groq judge + local Qwen embeddings (no external `ragas` package):
 | **End-to-End** (vs a golden answer) | Answer Correctness | Factual accuracy of the answer vs the ground truth. | Yes |
 | | Answer Similarity | Semantic resemblance (embedding cosine) to the ground truth. | Yes |
 
-All six are defined in one place: [`app/evaluation/ragas_live.py`](app/evaluation/ragas_live.py).
+All six are defined in one place: [`app/evaluation/metrics.py`](app/evaluation/metrics.py).
 
-**Inline scorecard (per answer).** The three **reference-free** metrics (context precision,
-faithfulness, answer relevancy) are scored **right after each answer** and returned with it, so
-the chat UI shows a small scorecard directly under every reply. For streaming, scoring runs
-*after* the tokens are sent, so it never delays time-to-first-token — the scorecard simply
-appears once the answer is complete.
-
-**Batch (all six, vs ground truth).** The three ground-truth metrics need a labelled set, so
-run the **offline batch evaluator**:
+Evaluation is an **offline batch job** (it is not part of the request path — the chat API
+just answers). Run it on the labelled ground-truth set:
 ```bash
 python -m scripts.run_ragas_eval            # uses data/eval/ground_truth.json
 ```
 It runs the full graph per question, scores all six metrics grouped by category, prints a
-scorecard, and writes `data/eval/latest_ragas.json`. The Streamlit **📊 Evaluation** page
-([`ui/pages/1_Evaluation.py`](ui/pages/1_Evaluation.py)) displays that batch result.
+scorecard, and writes `data/eval/latest_ragas.json`. Edit `data/eval/ground_truth.json` to
+change the labelled questions.
 
-### Async backend
+## Async backend
 
 The FastAPI app is fully `async`: the graph runs via `ainvoke`/a threaded `stream` so the
 synchronous LLM, Supabase, and embedding calls never block the event loop; conversation
-save/feedback are offloaded with `asyncio.to_thread`; and the inline RAGAS scoring uses the
-async evaluator (`asyncio.gather` over the three metrics, each in a worker thread).
+save and feedback writes are offloaded with `asyncio.to_thread`.
 
 ## Testing
 ```bash
 pytest -q     # Groq + Supabase are mocked; set any GROQ_API_KEY to allow imports
 ```
-Coverage: the calculation tools, each agent through the compiled graph, the grounding grader (pass/fail/retry), the end-to-end feedback loop, multi-turn conversation memory, the async FastAPI endpoints (with inline RAGAS), the inline RAGAS evaluator, and the DOCX/PDF chunkers.
+Coverage: the calculation tools, each agent through the compiled graph, the grounding grader (pass/fail/retry), the end-to-end feedback loop, multi-turn conversation memory, the async FastAPI endpoints, the LLM rate-limit fallback/retry, the RAGAS metric library, and the DOCX/PDF chunkers.
 
 ## Project structure
 ```
@@ -230,7 +225,7 @@ cloud-presales-agent/
 │   ├── tools/                     # calculation, RAG, competitor, memory, conversation, embedding
 │   ├── agents/                    # calculator, document, competitor agents
 │   ├── graders/                   # grounding (hallucination) grader
-│   ├── evaluation/                # ragas_live (the 6 metrics, sync + async, scored inline)
+│   ├── evaluation/                # metrics (the 6 RAGAS-style metrics, for the batch evaluator)
 │   └── graph/                     # state, supervisor (routing), builder (graph)
 ├── scripts/
 │   ├── ingest_documents.py        # built-in sample docs
@@ -241,11 +236,10 @@ cloud-presales-agent/
 ├── data/eval/                     # ground_truth.json (labelled set) + latest_ragas.json (batch output)
 ├── sql/                           # schema.sql (5 tables + 2 RPC) + seed_data.sql
 ├── ui/
-│   ├── streamlit_app.py           # chat UI with 👍/👎 feedback
-│   └── pages/1_📊_Evaluation.py   # RAGAS evaluation page (sidebar)
+│   └── streamlit_app.py           # chat UI with 👍/👎 feedback
 ├── tests/                         # pytest suite (mocked)
 └── requirements.txt · .env.example
 ```
 
 ## Extend it
-Multi-turn conversation memory is now in place (see the note above). The natural next step is to move from *answering* to *doing*: add action-taking agents (e.g. draft and save a quote) on top of it, and compute live RAGAS scores from a labelled set of real presales queries. Contributions and issues welcome.
+Multi-turn conversation memory is now in place (see the note above). The natural next step is to move from *answering* to *doing*: add action-taking agents (e.g. draft and save a quote) on top of it, and grow the labelled RAGAS ground-truth set with real presales queries. Contributions and issues welcome.

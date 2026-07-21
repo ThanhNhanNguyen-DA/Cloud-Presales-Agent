@@ -5,7 +5,7 @@ The graph and the feedback tool are mocked so the suite is deterministic and doe
 not require a live Groq/Supabase connection (the same pattern as the other tests).
 """
 
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 from app.main import app
 
@@ -19,12 +19,9 @@ def test_health_check():
 
 
 def test_chat_endpoint():
-    """The endpoint is async, runs the graph via ainvoke, and returns the inline RAGAS scorecard."""
-    mock_result = {"route": "general", "final_response": "Hello! How can I help you today?",
-                   "raw_tool_output": None, "grading_passed": None, "retry_count": 0}
-    ragas = {"context_precision": None, "faithfulness": None, "answer_relevancy": 0.7}
-    with patch("app.main.graph") as mock_graph, \
-         patch("app.main.evaluate_answer_async", new=AsyncMock(return_value=ragas)) as mock_eval:
+    """The endpoint is async and runs the graph via ainvoke; no evaluation in the request path."""
+    mock_result = {"route": "general", "final_response": "Hello! How can I help you today?"}
+    with patch("app.main.graph") as mock_graph:
         mock_graph.ainvoke = AsyncMock(return_value=mock_result)
         response = client.post("/chat", json={"query": "Hello"})
 
@@ -33,9 +30,6 @@ def test_chat_endpoint():
     assert "response" in data
     assert len(data["response"]) > 0
     assert data["route"] == "general"
-    # RAGAS was scored inline and returned with the answer.
-    mock_eval.assert_awaited()
-    assert data["ragas"] == ragas
 
 
 def test_chat_stream_endpoint():
@@ -44,9 +38,7 @@ def test_chat_stream_endpoint():
         yield ("updates", {"supervisor": {"route": "general", "final_response": None}})
         yield ("updates", {"general": {"route": "general", "final_response": "Hi there!"}})
 
-    ragas = {"context_precision": None, "faithfulness": None, "answer_relevancy": 0.7}
-    with patch("app.main.graph") as mock_graph, \
-         patch("app.main.evaluate_answer_async", new=AsyncMock(return_value=ragas)):
+    with patch("app.main.graph") as mock_graph:
         mock_graph.stream.side_effect = fake_stream
         response = client.post("/chat/stream", json={"query": "Hello"})
 
@@ -56,7 +48,6 @@ def test_chat_stream_endpoint():
     # Progress events for each node, then a final event carrying the answer.
     assert '"type": "progress"' in body
     assert '"node": "supervisor"' in body
-    assert '"type": "ragas"' in body   # inline scorecard emitted after the answer
     assert '"type": "final"' in body
     assert "Hi there!" in body
 

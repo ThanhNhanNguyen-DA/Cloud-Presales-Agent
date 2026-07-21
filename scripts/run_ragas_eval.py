@@ -4,7 +4,7 @@ Offline batch evaluation on a labelled ground-truth set.
 Runs the FULL agent graph on each labelled question, captures the answer and the raw
 retrieved context, then scores the standard six RAGAS-style metrics — organised into the
 three groups — using the project's own building blocks (Groq judge + local Qwen
-embeddings, no external `ragas` package), so the numbers match the live scoring.
+embeddings, no external `ragas` package).
 
 Metric groups
 -------------
@@ -24,8 +24,7 @@ Usage
     python -m scripts.run_ragas_eval path/to/labelled.json # custom set
 
 Input JSON: a list of {"question": ..., "ground_truth": ...}.
-Output: prints a grouped scorecard and writes data/eval/latest_ragas.json (read by the
-Streamlit 📊 Evaluation dashboard).
+Output: prints a grouped scorecard and writes data/eval/latest_ragas.json for review.
 
 Requires live Groq + Supabase (this is an intentional offline job, not part of a request).
 """
@@ -44,7 +43,7 @@ from typing import Dict, List, Optional
 ROOT = Path(__file__).resolve().parents[1]
 
 from app.graph.builder import build_graph
-from app.evaluation.ragas_live import (
+from app.evaluation.metrics import (
     answer_correctness,
     answer_relevancy,
     answer_similarity,
@@ -176,7 +175,7 @@ def main() -> None:
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_PATH.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\nWrote {OUTPUT_PATH} (shown on the Streamlit 📊 Evaluation dashboard).")
+    print(f"\nWrote {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":

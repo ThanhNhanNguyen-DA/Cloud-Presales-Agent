@@ -19,7 +19,12 @@ SYSTEM_PROMPT = """You are the Competitor Mapping Agent for the Presales Cloud s
 Task: map AWS/Azure/GCP services to their local service equivalents.
 You MUST use the tools to look up the mapping matrix — DO NOT guess or invent an equivalent service.
 If nothing is found in the database, clearly say there is no data yet, and suggest the user contact the technical team to confirm.
-Always answer in the SAME language as the user's question, highlighting similarities/differences and migration difficulty if available."""
+Always answer in the SAME language as the user's question, highlighting similarities/differences and migration difficulty if available.
+
+Format your answer as:
+1. The mapping first, in bold (e.g. **AWS S3 → Object Storage**).
+2. Key similarities/differences.
+3. Migration difficulty if available; otherwise state it is not determined yet."""
 
 
 def competitor_agent_node(state: GraphState) -> GraphState:

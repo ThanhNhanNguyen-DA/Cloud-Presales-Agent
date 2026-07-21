@@ -11,11 +11,9 @@ Async design (pragmatic):
 - Endpoints are `async def`; the graph runs via `ainvoke`/a threaded `stream` so the
   event loop is never blocked by the (synchronous) LLM, Supabase, and embedding calls.
 - Blocking helpers (conversation load/save, feedback) are offloaded with `asyncio.to_thread`.
-- RAGAS is scored INLINE right after the answer is produced and returned with it (a scorecard
-  shown immediately in the UI). For streaming it is computed AFTER the tokens are sent, so it
-  never delays time-to-first-token. Only the three reference-free metrics are scored live
-  (context precision, faithfulness, answer relevancy); the ground-truth metrics are the
-  offline batch job (scripts/run_ragas_eval.py).
+
+RAGAS evaluation is an offline batch job (scripts/run_ragas_eval.py), not part of the
+request path.
 """
 
 import asyncio
@@ -31,7 +29,6 @@ from pydantic import BaseModel
 from app.graph.builder import build_graph
 from app.tools.memory_tools import save_user_feedback
 from app.tools.conversation_tools import load_conversation_history, save_conversation_turn
-from app.evaluation.ragas_live import evaluate_answer_async
 
 app = FastAPI(title="Cloud Presales Agentic RAG Chatbot API")
 
@@ -53,9 +50,6 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     route: str
     response: str
-    # Live (reference-free) RAGAS scorecard, computed inline and returned with the answer:
-    # {"context_precision": float|None, "faithfulness": float|None, "answer_relevancy": float|None}.
-    ragas: Optional[dict] = None
 
 
 class FeedbackRequest(BaseModel):
@@ -98,23 +92,16 @@ def _persist_turn(session_id: Optional[str], query: str, response: Optional[str]
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """Run the full graph, score the answer inline (RAGAS), and return both together."""
+    """Run the full graph and return the final answer."""
     state = await asyncio.to_thread(_initial_state, request.query, request.session_id)
     result = await graph.ainvoke(state)
 
-    # Save the conversation turn in the foreground so a fast follow-up sees it.
+    # Save the conversation turn so a fast follow-up sees it.
     await asyncio.to_thread(
         _persist_turn, request.session_id, request.query,
         result.get("final_response"), result.get("route"),
     )
-
-    # Score inline so the answer comes back with its scorecard.
-    ragas = await evaluate_answer_async(
-        request.query,
-        result.get("final_response") or "",
-        result.get("raw_tool_output") or "",
-    )
-    return ChatResponse(route=result["route"], response=result["final_response"], ragas=ragas)
+    return ChatResponse(route=result["route"], response=result["final_response"])
 
 
 # Nodes that produce the user-facing answer. We stream tokens ONLY from these — the
@@ -144,12 +131,10 @@ async def chat_stream(request: ChatRequest):
       - {"type":"progress","node":...}   after each graph node completes
       - {"type":"ttft","seconds":...}    at the first answer token (time-to-first-token)
       - {"type":"token","text":...}      each answer token as it is generated
-      - {"type":"ragas", ...metrics}     the inline scorecard, once the answer is complete
-      - {"type":"final","route","response","ttft","total","ragas"}   once the graph finishes
+      - {"type":"final","route","response","ttft","total"}   once the graph finishes
 
     The sync graph generator is pumped from a worker thread (one `next()` per step) so it
-    never blocks the event loop. RAGAS is scored AFTER the tokens are sent, so it adds
-    nothing to TTFT — the scorecard simply appears right after the answer.
+    never blocks the event loop.
     """
 
     async def event_generator():
@@ -157,7 +142,6 @@ async def chat_stream(request: ChatRequest):
         ttft = None
         route = None
         final_response = None
-        raw_output = None
 
         state = await asyncio.to_thread(_initial_state, request.query, request.session_id)
         stream = graph.stream(state, stream_mode=["updates", "messages"])
@@ -174,7 +158,6 @@ async def chat_stream(request: ChatRequest):
                     if isinstance(node_state, dict):
                         route = node_state.get("route") or route
                         final_response = node_state.get("final_response") or final_response
-                        raw_output = node_state.get("raw_tool_output") or raw_output
             else:  # mode == "messages"
                 chunk, meta = payload
                 if meta.get("langgraph_node") not in ANSWER_NODES:
@@ -187,21 +170,15 @@ async def chat_stream(request: ChatRequest):
                     yield f"data: {json.dumps({'type': 'ttft', 'seconds': round(ttft, 3)}, ensure_ascii=False)}\n\n"
                 yield f"data: {json.dumps({'type': 'token', 'text': text}, ensure_ascii=False)}\n\n"
 
-        # Persist the conversation turn in the foreground (memory = correctness).
+        # Persist the conversation turn so a fast follow-up sees it.
         await asyncio.to_thread(_persist_turn, request.session_id, request.query, final_response, route)
 
-        # Score the answer inline (after the tokens, so TTFT is unaffected) and emit the scorecard.
-        ragas = await evaluate_answer_async(request.query, final_response or "", raw_output or "")
-        yield f"data: {json.dumps({'type': 'ragas', **ragas}, ensure_ascii=False)}\n\n"
-
-        total = time.perf_counter() - t0
         final_msg = {
             "type": "final",
             "route": route,
             "response": final_response,
             "ttft": round(ttft, 3) if ttft is not None else None,
-            "total": round(total, 3),
-            "ragas": ragas,
+            "total": round(time.perf_counter() - t0, 3),
         }
         yield f"data: {json.dumps(final_msg, ensure_ascii=False)}\n\n"
 

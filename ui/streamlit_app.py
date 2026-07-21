@@ -1,8 +1,7 @@
 """
 Streamlit chat UI for the Cloud Presales Agentic RAG Chatbot.
 
-Talks to the FastAPI backend. Each answer is scored inline (RAGAS) and its scorecard is
-shown right below the answer. Shows Upvote/Downvote buttons after each answer; a Downvote
+Talks to the FastAPI backend. Shows Upvote/Downvote buttons after each answer; a Downvote
 opens a correction box that feeds the feedback memory, closing the self-learning loop.
 """
 
@@ -14,31 +13,13 @@ import requests
 
 API_BASE_URL = "http://localhost:8000"
 
-# Live (reference-free) RAGAS metrics shown in the per-answer scorecard.
-SCORECARD_METRICS = [
-    ("context_precision", "Context Precision", "Retrieval signal-to-noise: how relevant the retrieved context is."),
-    ("faithfulness", "Faithfulness", "Answer grounded in the context (hallucination check)."),
-    ("answer_relevancy", "Answer Relevancy", "How directly the answer addresses the question."),
-]
-
 st.set_page_config(page_title="Cloud Presales Agentic RAG Chatbot", page_icon="☁️", layout="centered")
 st.title("☁️ Cloud Presales Agentic RAG Chatbot")
 st.caption("Presales support system: cost/sizing calculation, SLA/security document lookup, competitor service comparison.")
 
 
-def render_scorecard(ragas: dict) -> None:
-    """Show the inline RAGAS scorecard (3 reference-free metrics) below an answer."""
-    if not ragas:
-        return
-    st.caption("🎯 RAGAS scorecard (reference-free)")
-    cols = st.columns(len(SCORECARD_METRICS))
-    for col, (key, label, help_) in zip(cols, SCORECARD_METRICS):
-        val = ragas.get(key)
-        col.metric(label, f"{val:.2f}" if isinstance(val, (int, float)) else "—", help=help_)
-
-
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []  # list of dict: {role, content, route, ragas, feedback_given}
+    st.session_state.chat_history = []  # list of dict: {role, content, route, feedback_given}
 
 # Conversation id sent with every request so the backend can load/save multi-turn memory.
 if "session_id" not in st.session_state:
@@ -50,8 +31,6 @@ for idx, msg in enumerate(st.session_state.chat_history):
         st.markdown(msg["content"])
         if msg["role"] == "assistant" and msg.get("ttft") is not None:
             st.caption(f"⚡ TTFT {msg['ttft']}s · ⏱ Total {msg.get('total', '?')}s · route: {msg.get('route', '?')}")
-        if msg["role"] == "assistant":
-            render_scorecard(msg.get("ragas"))
         if msg["role"] == "assistant" and not msg.get("feedback_given"):
             col1, col2 = st.columns([1, 1])
             with col1:
@@ -111,19 +90,15 @@ if user_input:
                     yield event["text"]
                 elif etype == "ttft":
                     meta["ttft"] = event["seconds"]
-                elif etype == "ragas":
-                    meta["ragas"] = {k: event.get(k) for k, _, _ in SCORECARD_METRICS}
                 elif etype == "final":
                     meta["route"] = event.get("route")
                     meta["total"] = event.get("total")
                     meta["ttft"] = event.get("ttft", meta.get("ttft"))
                     meta["final"] = event.get("response")
-                    meta["ragas"] = event.get("ragas", meta.get("ragas"))
 
     with st.chat_message("assistant"):
         try:
             streamed_text = st.write_stream(stream_answer())
-            render_scorecard(meta.get("ragas"))
         except requests.exceptions.RequestException as e:
             streamed_text = f"Error connecting to backend: {str(e)}"
             meta = {"route": "error"}
@@ -138,7 +113,6 @@ if user_input:
         "route": meta.get("route"),
         "ttft": meta.get("ttft"),
         "total": meta.get("total"),
-        "ragas": meta.get("ragas"),
         "feedback_given": False
     })
     st.rerun()

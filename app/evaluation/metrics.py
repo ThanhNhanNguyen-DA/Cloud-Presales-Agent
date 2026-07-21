@@ -2,32 +2,21 @@
 RAGAS-style evaluation metrics, organised into the standard three groups.
 
 Computed with the project's own building blocks — the Groq judge LLM and the local Qwen
-embeddings — so the same definitions power both the live per-answer scoring and the
-offline batch run (no external `ragas` package).
+embeddings — so no external `ragas` package is needed. Used by the offline batch evaluator
+(scripts/run_ragas_eval.py).
 
 Metric taxonomy
 ---------------
 1. Retrieval metrics — evaluate the vector DB / retriever:
      * context_precision — signal-to-noise of the retrieved context (relevant vs noise).
-                           Reference-free.
      * context_recall    — did retrieval fetch everything the correct answer needs?
-                           Needs ground truth.
 2. Generation metrics — evaluate the LLM response:
      * faithfulness      — is the answer strictly grounded in the retrieved context
-                           (hallucination check)? Reference-free.
+                           (hallucination check)?
      * answer_relevancy  — how directly does the answer address the question?
-                           Reference-free.
 3. End-to-end metrics — compare against a golden ground-truth answer:
      * answer_correctness — factual accuracy of the answer vs the ground truth.
-                            Needs ground truth.
      * answer_similarity  — semantic resemblance (embedding cosine) to the ground truth.
-                            Needs ground truth.
-
-Which run where
----------------
-The three reference-free metrics (context_precision, faithfulness, answer_relevancy) are
-scored LIVE on every answer (in the background) and logged. The three ground-truth metrics
-can only be computed in the OFFLINE batch run against a labelled set (scripts/run_ragas_eval.py).
 
 Design notes
 ------------
@@ -37,9 +26,8 @@ Design notes
 
 from __future__ import annotations
 
-import asyncio
 import re
-from typing import Dict, Optional
+from typing import Optional
 
 import numpy as np
 
@@ -198,33 +186,3 @@ def answer_correctness(answer: str, ground_truth: str) -> Optional[float]:
 def answer_similarity(answer: str, ground_truth: str) -> Optional[float]:
     """End-to-end semantic resemblance between the answer and the ground truth (embedding cosine)."""
     return _cosine_texts(answer, ground_truth)
-
-
-# =====================================================================================
-# Live scoring (reference-free subset — the only metrics computable without ground truth)
-# =====================================================================================
-
-def evaluate_answer(question: str, answer: str, context: str = "") -> Dict[str, Optional[float]]:
-    """Compute the live (reference-free) metrics for one (question, answer, context) triple."""
-    return {
-        "context_precision": context_precision(question, context),
-        "faithfulness": faithfulness(answer, context),
-        "answer_relevancy": answer_relevancy(question, answer),
-    }
-
-
-async def evaluate_answer_async(question: str, answer: str, context: str = "") -> Dict[str, Optional[float]]:
-    """
-    Async, non-blocking version of `evaluate_answer`.
-
-    The judge LLM calls and the embedding forward-pass are blocking/CPU-bound, so each is
-    offloaded to a worker thread with asyncio.to_thread; the three independent metrics run
-    concurrently via asyncio.gather. Keeps the FastAPI event loop free while the answer is
-    scored inline (app/main.py) right after it is produced.
-    """
-    cp, fth, rel = await asyncio.gather(
-        asyncio.to_thread(context_precision, question, context),
-        asyncio.to_thread(faithfulness, answer, context),
-        asyncio.to_thread(answer_relevancy, question, answer),
-    )
-    return {"context_precision": cp, "faithfulness": fth, "answer_relevancy": rel}
