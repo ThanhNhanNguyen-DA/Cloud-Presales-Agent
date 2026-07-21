@@ -19,11 +19,12 @@ def test_health_check():
 
 
 def test_chat_endpoint():
-    """The endpoint is async and runs the graph via ainvoke; evaluation/logging is backgrounded."""
+    """The endpoint is async, runs the graph via ainvoke, and returns the inline RAGAS scorecard."""
     mock_result = {"route": "general", "final_response": "Hello! How can I help you today?",
                    "raw_tool_output": None, "grading_passed": None, "retry_count": 0}
+    ragas = {"context_precision": None, "faithfulness": None, "answer_relevancy": 0.7}
     with patch("app.main.graph") as mock_graph, \
-         patch("app.main.evaluate_and_log", new=AsyncMock()) as mock_log:
+         patch("app.main.evaluate_answer_async", new=AsyncMock(return_value=ragas)) as mock_eval:
         mock_graph.ainvoke = AsyncMock(return_value=mock_result)
         response = client.post("/chat", json={"query": "Hello"})
 
@@ -32,8 +33,9 @@ def test_chat_endpoint():
     assert "response" in data
     assert len(data["response"]) > 0
     assert data["route"] == "general"
-    # Evaluation was scheduled as a background task, not run inline.
-    mock_log.assert_awaited()
+    # RAGAS was scored inline and returned with the answer.
+    mock_eval.assert_awaited()
+    assert data["ragas"] == ragas
 
 
 def test_chat_stream_endpoint():
@@ -42,8 +44,9 @@ def test_chat_stream_endpoint():
         yield ("updates", {"supervisor": {"route": "general", "final_response": None}})
         yield ("updates", {"general": {"route": "general", "final_response": "Hi there!"}})
 
+    ragas = {"context_precision": None, "faithfulness": None, "answer_relevancy": 0.7}
     with patch("app.main.graph") as mock_graph, \
-         patch("app.main.evaluate_and_log", new=AsyncMock()):
+         patch("app.main.evaluate_answer_async", new=AsyncMock(return_value=ragas)):
         mock_graph.stream.side_effect = fake_stream
         response = client.post("/chat/stream", json={"query": "Hello"})
 
@@ -53,6 +56,7 @@ def test_chat_stream_endpoint():
     # Progress events for each node, then a final event carrying the answer.
     assert '"type": "progress"' in body
     assert '"node": "supervisor"' in body
+    assert '"type": "ragas"' in body   # inline scorecard emitted after the answer
     assert '"type": "final"' in body
     assert "Hi there!" in body
 

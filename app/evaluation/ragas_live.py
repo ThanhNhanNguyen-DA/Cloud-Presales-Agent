@@ -1,24 +1,38 @@
 """
-Live, per-answer RAGAS-style scoring.
+RAGAS-style evaluation metrics, organised into the standard three groups.
 
-For every answer the system generates, this computes the two RAGAS metrics that need
-NO ground truth (so they can run live, on each response):
+Computed with the project's own building blocks — the Groq judge LLM and the local Qwen
+embeddings — so the same definitions power both the live per-answer scoring and the
+offline batch run (no external `ragas` package).
 
-  * faithfulness      — the fraction of the answer's factual claims that are supported
-                        by the retrieved context, judged by the LLM. One extra Groq
-                        call; returns None when there is no context (e.g. the 'general'
-                        route or a tool that produced no output).
-  * answer_relevancy  — cosine similarity between the question and the answer embeddings
-                        (local Qwen; no extra LLM call). A lightweight proxy for RAGAS's
-                        question-regeneration relevancy.
+Metric taxonomy
+---------------
+1. Retrieval metrics — evaluate the vector DB / retriever:
+     * context_precision — signal-to-noise of the retrieved context (relevant vs noise).
+                           Reference-free.
+     * context_recall    — did retrieval fetch everything the correct answer needs?
+                           Needs ground truth.
+2. Generation metrics — evaluate the LLM response:
+     * faithfulness      — is the answer strictly grounded in the retrieved context
+                           (hallucination check)? Reference-free.
+     * answer_relevancy  — how directly does the answer address the question?
+                           Reference-free.
+3. End-to-end metrics — compare against a golden ground-truth answer:
+     * answer_correctness — factual accuracy of the answer vs the ground truth.
+                            Needs ground truth.
+     * answer_similarity  — semantic resemblance (embedding cosine) to the ground truth.
+                            Needs ground truth.
+
+Which run where
+---------------
+The three reference-free metrics (context_precision, faithfulness, answer_relevancy) are
+scored LIVE on every answer (in the background) and logged. The three ground-truth metrics
+can only be computed in the OFFLINE batch run against a labelled set (scripts/run_ragas_eval.py).
 
 Design notes
 ------------
-* Best-effort: any failure returns None for that metric and NEVER breaks the answer.
-* Runs AFTER the answer is produced, so it does not delay time-to-first-token.
-* The other two RAGAS metrics (context precision / recall) require a labelled
-  ground-truth set and therefore cannot be computed live — use the full `ragas`
-  library offline for those (see the Evaluation page).
+* Best-effort: any failure returns None for that metric and NEVER breaks the caller.
+* LLM-judged metrics return a fraction in [0, 1]; embedding metrics return cosine in [0, 1].
 """
 
 from __future__ import annotations
@@ -43,6 +57,89 @@ def _get_judge():
     return _judge
 
 
+def _score_from_llm(prompt: str) -> Optional[float]:
+    """Ask the judge for a single 0.0–1.0 number and parse it; None on any failure."""
+    try:
+        raw = _get_judge().invoke(prompt).content
+        text = raw if isinstance(raw, str) else str(raw)
+        match = re.search(r"\d?\.\d+|\d", text)
+        if not match:
+            return None
+        return round(max(0.0, min(1.0, float(match.group()))), 3)
+    except Exception:
+        return None
+
+
+def _cosine(a, b) -> float:
+    va, vb = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+    denom = float(np.linalg.norm(va) * np.linalg.norm(vb)) or 1.0
+    return float(np.dot(va, vb) / denom)
+
+
+def _cosine_texts(a: str, b: str) -> Optional[float]:
+    """Cosine similarity between two texts' embeddings, clamped to [0, 1]; None if empty."""
+    if not a.strip() or not b.strip():
+        return None
+    try:
+        return round(max(0.0, min(1.0, _cosine(embed_text(a), embed_text(b)))), 3)
+    except Exception:
+        return None
+
+
+# =====================================================================================
+# 1. Retrieval metrics
+# =====================================================================================
+
+_CONTEXT_PRECISION_PROMPT = """You are a strict retrieval-quality judge.
+Given a QUESTION and the CONTEXT that a retrieval system returned for it, estimate the
+signal-to-noise ratio: what fraction of the CONTEXT is actually relevant and useful for
+answering the QUESTION (as opposed to noise / unrelated material)?
+
+QUESTION:
+{question}
+
+CONTEXT:
+{context}
+
+Reply with ONLY a single number between 0.0 and 1.0
+(1.0 = all of the context is relevant, 0.0 = none is). No words, no units."""
+
+
+_CONTEXT_RECALL_PROMPT = """You are a strict retrieval-recall judge.
+Given the GROUND-TRUTH answer and the retrieved CONTEXT, estimate what fraction of the
+factual statements in the GROUND-TRUTH answer are supported by (can be found in) the
+CONTEXT. This measures whether retrieval fetched everything needed to answer fully.
+
+GROUND-TRUTH ANSWER:
+{ground_truth}
+
+CONTEXT:
+{context}
+
+Reply with ONLY a single number between 0.0 and 1.0
+(1.0 = every ground-truth fact is present in the context, 0.0 = none is). No words."""
+
+
+def context_precision(question: str, context: str) -> Optional[float]:
+    """Retrieval signal-to-noise: fraction of the retrieved context relevant to the question."""
+    if not question.strip() or not context.strip():
+        return None
+    return _score_from_llm(_CONTEXT_PRECISION_PROMPT.format(
+        question=question[:2000], context=context[:6000]))
+
+
+def context_recall(ground_truth: str, context: str) -> Optional[float]:
+    """Retrieval completeness: fraction of ground-truth facts present in the retrieved context."""
+    if not ground_truth.strip() or not context.strip():
+        return None
+    return _score_from_llm(_CONTEXT_RECALL_PROMPT.format(
+        ground_truth=ground_truth[:4000], context=context[:6000]))
+
+
+# =====================================================================================
+# 2. Generation metrics
+# =====================================================================================
+
 _FAITHFULNESS_PROMPT = """You are a strict RAG faithfulness judge.
 Given the CONTEXT (data retrieved by a tool or document search) and the ANSWER,
 estimate what fraction of the factual claims in the ANSWER are directly supported by
@@ -58,58 +155,76 @@ Reply with ONLY a single number between 0.0 and 1.0
 (1.0 = every claim is supported by the context, 0.0 = none is). No words, no units."""
 
 
-def _cosine(a, b) -> float:
-    va, vb = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
-    denom = float(np.linalg.norm(va) * np.linalg.norm(vb)) or 1.0
-    return float(np.dot(va, vb) / denom)
+def faithfulness(answer: str, context: str) -> Optional[float]:
+    """Generation grounding: fraction of answer claims supported by the retrieved context."""
+    if not answer.strip() or not context.strip():
+        return None  # nothing to ground against (e.g. general route)
+    return _score_from_llm(_FAITHFULNESS_PROMPT.format(
+        context=context[:6000], answer=answer[:4000]))
 
 
 def answer_relevancy(question: str, answer: str) -> Optional[float]:
-    """Cosine similarity between question and answer embeddings, clamped to [0, 1]."""
-    if not question.strip() or not answer.strip():
-        return None
-    try:
-        score = _cosine(embed_text(question), embed_text(answer))
-        return round(max(0.0, min(1.0, score)), 3)
-    except Exception:
-        return None
+    """Generation relevance: how directly the answer addresses the question (embedding cosine)."""
+    return _cosine_texts(question, answer)
 
 
-def faithfulness(answer: str, context: str) -> Optional[float]:
-    """LLM-judged fraction of answer claims supported by the retrieved context."""
-    if not answer.strip() or not context.strip():
-        return None  # nothing to ground against (e.g. general route)
-    try:
-        prompt = _FAITHFULNESS_PROMPT.format(context=context[:6000], answer=answer[:4000])
-        raw = _get_judge().invoke(prompt).content
-        text = raw if isinstance(raw, str) else str(raw)
-        match = re.search(r"\d?\.\d+|\d", text)
-        if not match:
-            return None
-        return round(max(0.0, min(1.0, float(match.group()))), 3)
-    except Exception:
-        return None
+# =====================================================================================
+# 3. End-to-end metrics (need a golden ground-truth answer)
+# =====================================================================================
 
+_ANSWER_CORRECTNESS_PROMPT = """You are a strict answer-grading judge.
+Compare the GENERATED ANSWER against the GROUND-TRUTH ("golden") answer and estimate its
+overall factual correctness: do the facts, numbers, and conclusions in the generated
+answer agree with the ground truth? Penalise wrong or contradictory facts.
+
+GROUND-TRUTH ANSWER:
+{ground_truth}
+
+GENERATED ANSWER:
+{answer}
+
+Reply with ONLY a single number between 0.0 and 1.0
+(1.0 = fully correct vs the ground truth, 0.0 = entirely wrong). No words, no units."""
+
+
+def answer_correctness(answer: str, ground_truth: str) -> Optional[float]:
+    """End-to-end accuracy: factual agreement of the answer with the golden ground truth."""
+    if not answer.strip() or not ground_truth.strip():
+        return None
+    return _score_from_llm(_ANSWER_CORRECTNESS_PROMPT.format(
+        ground_truth=ground_truth[:4000], answer=answer[:4000]))
+
+
+def answer_similarity(answer: str, ground_truth: str) -> Optional[float]:
+    """End-to-end semantic resemblance between the answer and the ground truth (embedding cosine)."""
+    return _cosine_texts(answer, ground_truth)
+
+
+# =====================================================================================
+# Live scoring (reference-free subset — the only metrics computable without ground truth)
+# =====================================================================================
 
 def evaluate_answer(question: str, answer: str, context: str = "") -> Dict[str, Optional[float]]:
-    """Compute the live RAGAS metrics for one (question, answer, context) triple (blocking)."""
+    """Compute the live (reference-free) metrics for one (question, answer, context) triple."""
     return {
+        "context_precision": context_precision(question, context),
         "faithfulness": faithfulness(answer, context),
         "answer_relevancy": answer_relevancy(question, answer),
     }
 
 
-# --- Async variants -----------------------------------------------------------------
-# The judge LLM call and the embedding forward-pass are both blocking/CPU-bound, so we
-# offload them to worker threads with asyncio.to_thread. This keeps the FastAPI event
-# loop free while evaluation runs in the background (see app/evaluation/interaction_log.py).
-# The two metrics are independent, so they run concurrently with asyncio.gather.
-
-
 async def evaluate_answer_async(question: str, answer: str, context: str = "") -> Dict[str, Optional[float]]:
-    """Async, non-blocking version of `evaluate_answer` — the two metrics run concurrently."""
-    fth, rel = await asyncio.gather(
+    """
+    Async, non-blocking version of `evaluate_answer`.
+
+    The judge LLM calls and the embedding forward-pass are blocking/CPU-bound, so each is
+    offloaded to a worker thread with asyncio.to_thread; the three independent metrics run
+    concurrently via asyncio.gather. Keeps the FastAPI event loop free while the answer is
+    scored inline (app/main.py) right after it is produced.
+    """
+    cp, fth, rel = await asyncio.gather(
+        asyncio.to_thread(context_precision, question, context),
         asyncio.to_thread(faithfulness, answer, context),
         asyncio.to_thread(answer_relevancy, question, answer),
     )
-    return {"faithfulness": fth, "answer_relevancy": rel}
+    return {"context_precision": cp, "faithfulness": fth, "answer_relevancy": rel}

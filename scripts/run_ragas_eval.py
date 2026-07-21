@@ -1,19 +1,22 @@
 """
-Offline batch RAGAS evaluation on a labelled ground-truth set.
+Offline batch evaluation on a labelled ground-truth set.
 
 Runs the FULL agent graph on each labelled question, captures the answer and the raw
-retrieved context, then scores four RAGAS-style metrics using the project's own judge
-(Groq) and local embeddings (Qwen) — the same building blocks as the live per-answer
-scoring, so live and batch numbers are comparable. No external `ragas` package needed.
+retrieved context, then scores the standard six RAGAS-style metrics — organised into the
+three groups — using the project's own building blocks (Groq judge + local Qwen
+embeddings, no external `ragas` package), so the numbers match the live scoring.
 
-Metrics
--------
-  * faithfulness       — LLM-judged fraction of answer claims supported by the context
-                         (reference-free; same as the live metric).
-  * answer_relevancy   — cosine(question, answer). Reference-free.
-  * answer_correctness — cosine(answer, ground_truth). Ground-truth based.
-  * context_recall     — cosine(ground_truth, retrieved_context). A proxy for "did we
-                         retrieve the information the correct answer needs?".
+Metric groups
+-------------
+1. Retrieval (evaluates the retriever / vector DB):
+     * context_precision  — signal-to-noise of the retrieved context.
+     * context_recall     — did retrieval fetch everything the correct answer needs?
+2. Generation (evaluates the LLM response):
+     * faithfulness       — is the answer grounded in the context (hallucination check)?
+     * answer_relevancy   — how directly does the answer address the question?
+3. End-to-end (compares against the golden ground truth):
+     * answer_correctness — factual accuracy of the answer vs the ground truth.
+     * answer_similarity  — semantic resemblance (embedding) to the ground truth.
 
 Usage
 -----
@@ -21,8 +24,8 @@ Usage
     python -m scripts.run_ragas_eval path/to/labelled.json # custom set
 
 Input JSON: a list of {"question": ..., "ground_truth": ...}.
-Output: prints a scorecard and writes data/eval/latest_ragas.json (read by the
-Streamlit monitoring dashboard).
+Output: prints a grouped scorecard and writes data/eval/latest_ragas.json (read by the
+Streamlit 📊 Evaluation dashboard).
 
 Requires live Groq + Supabase (this is an intentional offline job, not part of a request).
 """
@@ -30,25 +33,45 @@ Requires live Groq + Supabase (this is an intentional offline job, not part of a
 from __future__ import annotations
 
 import json
+import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 
 from app.graph.builder import build_graph
-from app.tools.embedding_tool import embed_text
-from app.evaluation.ragas_live import _cosine, answer_relevancy, faithfulness
+from app.evaluation.ragas_live import (
+    answer_correctness,
+    answer_relevancy,
+    answer_similarity,
+    context_precision,
+    context_recall,
+    faithfulness,
+)
 
 
 DEFAULT_SET = ROOT / "data" / "eval" / "ground_truth.json"
 OUTPUT_PATH = ROOT / "data" / "eval" / "latest_ragas.json"
 
+# The six metrics, grouped exactly as the evaluation criteria define them.
+GROUPS: Dict[str, List[str]] = {
+    "Retrieval": ["context_precision", "context_recall"],
+    "Generation": ["faithfulness", "answer_relevancy"],
+    "End-to-End": ["answer_correctness", "answer_similarity"],
+}
+METRIC_KEYS = [m for keys in GROUPS.values() for m in keys]
+
+# Gentle pacing between samples to stay under the Groq free-tier RPM (each sample fires
+# several LLM calls). The LLM wrapper also waits out rate limits, but pacing avoids churn.
+THROTTLE_SECONDS = float(os.getenv("RAGAS_EVAL_THROTTLE", "3"))
+
 
 def _run_graph(graph, question: str) -> dict:
-    """Invoke the graph on one question and return the final answer + retrieved context."""
+    """Invoke the graph on one question and return the final answer + retrieved context + route."""
     state = {
         "messages": [],
         "session_id": None,
@@ -69,12 +92,19 @@ def _run_graph(graph, question: str) -> dict:
     }
 
 
-def _cos_texts(a: str, b: str) -> Optional[float]:
-    """Cosine similarity between two texts' embeddings, clamped to [0, 1]; None if empty."""
-    if not a.strip() or not b.strip():
-        return None
-    score = _cosine(embed_text(a), embed_text(b))
-    return round(max(0.0, min(1.0, score)), 3)
+def _score(question: str, answer: str, context: str, ground_truth: str) -> Dict[str, Optional[float]]:
+    """Compute all six metrics for one sample."""
+    return {
+        # Retrieval
+        "context_precision": context_precision(question, context),
+        "context_recall": context_recall(ground_truth, context),
+        # Generation
+        "faithfulness": faithfulness(answer, context),
+        "answer_relevancy": answer_relevancy(question, answer),
+        # End-to-end
+        "answer_correctness": answer_correctness(answer, ground_truth),
+        "answer_similarity": answer_similarity(answer, ground_truth),
+    }
 
 
 def _mean_or_none(values: List[Optional[float]]) -> Optional[float]:
@@ -83,7 +113,7 @@ def _mean_or_none(values: List[Optional[float]]) -> Optional[float]:
 
 
 def evaluate_set(samples: List[dict]) -> dict:
-    """Run the graph + score every labelled sample, returning aggregate + per-sample results."""
+    """Run the graph + score every labelled sample, returning grouped aggregate + per-sample results."""
     graph = build_graph()
     per_sample = []
 
@@ -92,38 +122,42 @@ def evaluate_set(samples: List[dict]) -> dict:
         ground_truth = sample.get("ground_truth", "")
         print(f"[{i}/{len(samples)}] {question[:70]}…")
 
-        out = _run_graph(graph, question)
-        row = {
-            "question": question,
-            "route": out["route"],
-            "answer": out["answer"],
-            "faithfulness": faithfulness(out["answer"], out["context"]),
-            "answer_relevancy": answer_relevancy(question, out["answer"]),
-            "answer_correctness": _cos_texts(out["answer"], ground_truth),
-            "context_recall": _cos_texts(ground_truth, out["context"]),
-        }
-        per_sample.append(row)
+        try:
+            out = _run_graph(graph, question)
+            scores = _score(question, out["answer"], out["context"], ground_truth)
+            per_sample.append({"question": question, "route": out["route"],
+                               "answer": out["answer"], **scores})
+        except Exception as e:  # noqa: BLE001 - one bad sample must not lose the whole run
+            print(f"  ! sample failed, recording as empty: {e}")
+            per_sample.append({"question": question, "route": None, "answer": "",
+                               **{k: None for k in METRIC_KEYS}, "error": str(e)})
 
-    metric_keys = ["faithfulness", "answer_relevancy", "answer_correctness", "context_recall"]
-    aggregate = {k: _mean_or_none([r[k] for r in per_sample]) for k in metric_keys}
+        if i < len(samples) and THROTTLE_SECONDS > 0:
+            time.sleep(THROTTLE_SECONDS)
+
+    aggregate = {k: _mean_or_none([r[k] for r in per_sample]) for k in METRIC_KEYS}
+    groups = {g: {k: aggregate[k] for k in keys} for g, keys in GROUPS.items()}
 
     return {
         "run_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "num_samples": len(samples),
+        "groups": groups,
         "aggregate": aggregate,
         "per_sample": per_sample,
     }
 
 
 def _print_scorecard(report: dict) -> None:
-    print("\n" + "=" * 60)
-    print(f"BATCH RAGAS — {report['num_samples']} samples @ {report['run_at']}")
-    print("=" * 60)
-    for metric, value in report["aggregate"].items():
-        bar = "█" * int((value or 0) * 20)
-        shown = f"{value:.2f}" if isinstance(value, (int, float)) else "  — "
-        print(f"  {metric:<20} {shown}  {bar}")
-    print("=" * 60)
+    print("\n" + "=" * 64)
+    print(f"BATCH EVALUATION — {report['num_samples']} samples @ {report['run_at']}")
+    print("=" * 64)
+    for group, metrics in report["groups"].items():
+        print(f"\n{group}")
+        for metric, value in metrics.items():
+            bar = "█" * int((value or 0) * 20)
+            shown = f"{value:.2f}" if isinstance(value, (int, float)) else "  — "
+            print(f"  {metric:<20} {shown}  {bar}")
+    print("=" * 64)
 
 
 def main() -> None:

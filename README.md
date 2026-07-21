@@ -90,7 +90,6 @@ All six go through one wrapper, [`app/llm.py`](app/llm.py), which holds an order
 | `cloud_service_pricing` | VM / storage pricing reference rows |
 | `cloud_feedback_memory` | Episodic memory: query/response + `is_positive` + `user_correction` + `query_embedding` |
 | `cloud_conversation_history` | Multi-turn chat memory: one row per message (`session_id`, `role`, `content`, `route`) so follow-up questions keep context |
-| `cloud_interaction_logs` | Per-answer telemetry (written in the background): `route`, `grading_passed`, `retry_count`, `faithfulness`, `answer_relevancy`, `ttft`/`total` — feeds the monitoring dashboard |
 
 Two RPC functions (`match_cloud_documents`, `match_past_experience`) do cosine-similarity search. Text is vectorised by **Qwen3-Embedding-0.6B**, truncated via Matryoshka to **512 dimensions** and L2-normalised. Documents are chunked by **three structure-aware strategies** (DOCX by heading with tables preserved; PDF per customer case study; recursive character splitting for the rest) rather than blind fixed-length cuts.
 
@@ -127,7 +126,7 @@ EMBEDDING_DIM=512
 > `SUPABASE_URL` must be the bare project URL (no `/rest/v1`). The embedding model (~1.2 GB) downloads and caches locally on first use. No provider key is needed for embeddings.
 
 ### 2. Create the database
-Run [`sql/schema.sql`](sql/schema.sql) then [`sql/seed_data.sql`](sql/seed_data.sql) in the **Supabase SQL Editor** (the helper `python -m app.db.run_migration` prints the exact steps and SQL). This creates the 6 tables, 2 RPC functions, pgvector, and indexes.
+Run [`sql/schema.sql`](sql/schema.sql) then [`sql/seed_data.sql`](sql/seed_data.sql) in the **Supabase SQL Editor** (the helper `python -m app.db.run_migration` prints the exact steps and SQL). This creates the 5 tables, 2 RPC functions, pgvector, and indexes.
 
 ### 3. Load data (pick any)
 ```bash
@@ -176,37 +175,49 @@ curl -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
 > `session_id` for a stateless, single-shot call. The Streamlit UI generates one per session
 > and starts a fresh one when you click **Clear chat history**.
 
-## Evaluation & monitoring (automated)
+## Evaluation (RAGAS)
 
-Evaluation is **automated and decoupled from the answer**. After every response is sent, a
-**background task** scores it (live RAGAS: faithfulness + answer relevancy) and appends a row
-to `cloud_interaction_logs` — so scoring adds **zero latency** to the chat (the API is async;
-see below). The Streamlit **📊 Evaluation** page ([`ui/pages/1_📊_Evaluation.py`](ui/pages/1_📊_Evaluation.py))
-reads that table and shows a live monitoring dashboard: routing mix, grounding-grader
-catch/retry rate (the hallucination signal), RAGAS trend over time, latency, and recent
-interactions.
+Quality is measured with **six RAGAS-style metrics in three groups** — computed with the
+project's own Groq judge + local Qwen embeddings (no external `ragas` package):
 
-For deeper, ground-truth-based numbers, run the **offline batch evaluator** on a labelled set:
+| Group | Metric | What it measures | Needs ground truth? |
+|-------|--------|------------------|:---:|
+| **Retrieval** (the retriever / vector DB) | Context Precision | Signal-to-noise of the retrieved context — are the relevant chunks the ones that surfaced? | No |
+| | Context Recall | Did retrieval fetch **everything** the correct answer needs? | Yes |
+| **Generation** (the LLM response) | Faithfulness | Is the answer strictly grounded in the context (hallucination check)? | No |
+| | Answer Relevancy | How directly does the answer address the question? | No |
+| **End-to-End** (vs a golden answer) | Answer Correctness | Factual accuracy of the answer vs the ground truth. | Yes |
+| | Answer Similarity | Semantic resemblance (embedding cosine) to the ground truth. | Yes |
+
+All six are defined in one place: [`app/evaluation/ragas_live.py`](app/evaluation/ragas_live.py).
+
+**Inline scorecard (per answer).** The three **reference-free** metrics (context precision,
+faithfulness, answer relevancy) are scored **right after each answer** and returned with it, so
+the chat UI shows a small scorecard directly under every reply. For streaming, scoring runs
+*after* the tokens are sent, so it never delays time-to-first-token — the scorecard simply
+appears once the answer is complete.
+
+**Batch (all six, vs ground truth).** The three ground-truth metrics need a labelled set, so
+run the **offline batch evaluator**:
 ```bash
 python -m scripts.run_ragas_eval            # uses data/eval/ground_truth.json
 ```
-It runs the full graph per question and scores faithfulness, answer relevancy, answer
-correctness, and context recall (project's Groq judge + local Qwen embeddings — no external
-`ragas` package), prints a scorecard, and writes `data/eval/latest_ragas.json`, which the
-dashboard displays.
+It runs the full graph per question, scores all six metrics grouped by category, prints a
+scorecard, and writes `data/eval/latest_ragas.json`. The Streamlit **📊 Evaluation** page
+([`ui/pages/1_Evaluation.py`](ui/pages/1_Evaluation.py)) displays that batch result.
 
 ### Async backend
 
 The FastAPI app is fully `async`: the graph runs via `ainvoke`/a threaded `stream` so the
 synchronous LLM, Supabase, and embedding calls never block the event loop; conversation
-save/feedback are offloaded with `asyncio.to_thread`; and evaluation + logging run in a
-background task after the answer is sent.
+save/feedback are offloaded with `asyncio.to_thread`; and the inline RAGAS scoring uses the
+async evaluator (`asyncio.gather` over the three metrics, each in a worker thread).
 
 ## Testing
 ```bash
 pytest -q     # Groq + Supabase are mocked; set any GROQ_API_KEY to allow imports
 ```
-Coverage: the calculation tools, each agent through the compiled graph, the grounding grader (pass/fail/retry), the end-to-end feedback loop, multi-turn conversation memory, the async FastAPI endpoints (with background evaluation), the background evaluation/logging path, and the DOCX/PDF chunkers.
+Coverage: the calculation tools, each agent through the compiled graph, the grounding grader (pass/fail/retry), the end-to-end feedback loop, multi-turn conversation memory, the async FastAPI endpoints (with inline RAGAS), the inline RAGAS evaluator, and the DOCX/PDF chunkers.
 
 ## Project structure
 ```
@@ -219,7 +230,7 @@ cloud-presales-agent/
 │   ├── tools/                     # calculation, RAG, competitor, memory, conversation, embedding
 │   ├── agents/                    # calculator, document, competitor agents
 │   ├── graders/                   # grounding (hallucination) grader
-│   ├── evaluation/                # ragas_live (async metrics), interaction_log (bg write), log_store (read)
+│   ├── evaluation/                # ragas_live (the 6 metrics, sync + async, scored inline)
 │   └── graph/                     # state, supervisor (routing), builder (graph)
 ├── scripts/
 │   ├── ingest_documents.py        # built-in sample docs
@@ -228,7 +239,7 @@ cloud-presales-agent/
 │   ├── run_ragas_eval.py          # offline batch RAGAS on a labelled ground-truth set
 │   ├── docx_chunker.py · pdf_casestudy_chunker.py · text_chunking.py
 ├── data/eval/                     # ground_truth.json (labelled set) + latest_ragas.json (batch output)
-├── sql/                           # schema.sql (6 tables + 2 RPC) + seed_data.sql
+├── sql/                           # schema.sql (5 tables + 2 RPC) + seed_data.sql
 ├── ui/
 │   ├── streamlit_app.py           # chat UI with 👍/👎 feedback
 │   └── pages/1_📊_Evaluation.py   # RAGAS evaluation page (sidebar)

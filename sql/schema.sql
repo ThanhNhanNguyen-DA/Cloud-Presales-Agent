@@ -70,27 +70,6 @@ CREATE TABLE cloud_conversation_history (
 -- Fetch the recent turns of one conversation in chronological order.
 CREATE INDEX idx_conversation_session ON cloud_conversation_history (session_id, created_at);
 
--- Table 6: cloud_interaction_logs — one row per answered question, written asynchronously
--- AFTER the response is sent (so it never adds latency). Feeds the Streamlit monitoring
--- dashboard: route mix, hallucination/retry rate, and live RAGAS metrics over time.
-CREATE TABLE cloud_interaction_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id TEXT,
-    user_query TEXT NOT NULL,
-    route VARCHAR(20),
-    final_response TEXT,
-    grading_passed BOOLEAN,     -- did the grounding grader pass? (NULL if not graded)
-    retry_count INT,            -- how many grading retries this answer needed
-    faithfulness NUMERIC,       -- live RAGAS: fraction of claims supported by context (0-1)
-    answer_relevancy NUMERIC,   -- live RAGAS: question<->answer cosine (0-1)
-    ttft_seconds NUMERIC,       -- time to first token (streaming only; NULL otherwise)
-    total_seconds NUMERIC,      -- end-to-end latency
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
-CREATE INDEX idx_interaction_logs_created ON cloud_interaction_logs (created_at DESC);
-CREATE INDEX idx_interaction_logs_route ON cloud_interaction_logs (route);
-
 -- RPC Function: match_past_experience — computes Cosine Similarity to find similar past lessons learned
 CREATE OR REPLACE FUNCTION match_past_experience (
   query_embedding vector(512),
