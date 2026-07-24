@@ -31,7 +31,6 @@ Notes:
 import argparse
 import sys
 from pathlib import Path
-from typing import List
 
 from app.db.supabase_client import supabase
 from app.tools.embedding_tool import embed_text
@@ -150,7 +149,7 @@ def ingest_file(path: Path, service_name: str, category: str, chunk_size: int, o
     return len(chunks)
 
 
-def collect_files(target: Path) -> List[Path]:
+def collect_files(target: Path) -> list[Path]:
     """Return the list of supported files for a file or directory target."""
     if target.is_file():
         return [target] if target.suffix.lower() in SUPPORTED_EXTENSIONS else []
@@ -171,7 +170,7 @@ def main():
     if args.category not in VALID_CATEGORIES:
         print(f"⚠️  '{args.category}' is not a standard category {sorted(VALID_CATEGORIES)}; ingesting anyway.")
 
-    files: List[Path] = []
+    files: list[Path] = []
     seen = set()
     for raw in args.path:
         target = Path(raw)

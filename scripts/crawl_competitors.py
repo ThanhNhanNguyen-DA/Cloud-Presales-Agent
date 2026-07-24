@@ -42,7 +42,6 @@ import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Set
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -50,7 +49,7 @@ import requests
 from bs4 import BeautifulSoup
 
 # Public homepages of Vietnamese cloud providers (non-bigtech competitors).
-PROVIDERS: Dict[str, str] = {
+PROVIDERS: dict[str, str] = {
     "vng": "https://vngcloud.vn/",
     "viettel": "https://viettelcloud.vn/",
     "fpt": "https://fptcloud.com/",
@@ -90,7 +89,7 @@ class Page:
     title: str
     fetched_at: str
     text: str
-    tables: List[List[List[str]]] = field(default_factory=list)  # tables[t][row][cell]
+    tables: list[list[list[str]]] = field(default_factory=list)  # tables[t][row][cell]
 
 
 def _robots_for(base_url: str) -> RobotFileParser:
@@ -133,11 +132,11 @@ def _clean_text(soup: BeautifulSoup) -> str:
     return "\n".join(ln for ln in lines if ln)
 
 
-def _extract_tables(soup: BeautifulSoup) -> List[List[List[str]]]:
+def _extract_tables(soup: BeautifulSoup) -> list[list[list[str]]]:
     """Return every HTML table verbatim as rows of cell text (nothing invented)."""
-    tables: List[List[List[str]]] = []
+    tables: list[list[list[str]]] = []
     for table in soup.find_all("table"):
-        rows: List[List[str]] = []
+        rows: list[list[str]] = []
         for tr in table.find_all("tr"):
             cells = [c.get_text(" ", strip=True) for c in tr.find_all(["th", "td"])]
             if cells:
@@ -147,12 +146,12 @@ def _extract_tables(soup: BeautifulSoup) -> List[List[List[str]]]:
     return tables
 
 
-def _path_tokens(url: str) -> List[str]:
+def _path_tokens(url: str) -> list[str]:
     """Hyphen/slash-delimited tokens of the URL path, lowercased."""
     return [t for t in re.split(r"[/\-_.]+", urlparse(url).path.lower()) if t]
 
 
-def _phrase_in(tokens: List[str], phrase: str) -> bool:
+def _phrase_in(tokens: list[str], phrase: str) -> bool:
     """True if `phrase` (its own tokens) appears as a contiguous run in `tokens`."""
     kw = phrase.split("-")
     n = len(kw)
@@ -169,10 +168,10 @@ def _url_is_relevant(url: str) -> bool:
     return any(_phrase_in(tokens, kw) for kw in LINK_KEYWORDS)
 
 
-def _discover_links(soup: BeautifulSoup, base_url: str, domain: str) -> List[str]:
+def _discover_links(soup: BeautifulSoup, base_url: str, domain: str) -> list[str]:
     """Same-domain product/pricing/service links (token-matched, news/blog excluded)."""
-    found: List[str] = []
-    seen: Set[str] = set()
+    found: list[str] = []
+    seen: set[str] = set()
     for a in soup.find_all("a", href=True):
         href = urljoin(base_url, a["href"]).split("#")[0].rstrip("/")
         if not href or href in seen:
@@ -186,7 +185,7 @@ def _discover_links(soup: BeautifulSoup, base_url: str, domain: str) -> List[str
     return found
 
 
-def crawl_provider(name: str, homepage: str, max_pages: int, delay: float) -> List[Page]:
+def crawl_provider(name: str, homepage: str, max_pages: int, delay: float) -> list[Page]:
     """Crawl a provider's homepage + up to `max_pages` product/pricing pages (depth 1)."""
     domain = urlparse(homepage).netloc
     rp = _robots_for(homepage)
@@ -198,11 +197,11 @@ def crawl_provider(name: str, homepage: str, max_pages: int, delay: float) -> Li
         except Exception:
             return True
 
-    pages: List[Page] = []
-    visited: Set[str] = set()
+    pages: list[Page] = []
+    visited: set[str] = set()
 
     # 1) homepage
-    queue: List[str] = [homepage.rstrip("/")]
+    queue: list[str] = [homepage.rstrip("/")]
     home_html = _fetch(homepage) if allowed(homepage) else None
     if home_html:
         soup = BeautifulSoup(home_html, "html.parser")
@@ -238,7 +237,7 @@ def crawl_provider(name: str, homepage: str, max_pages: int, delay: float) -> Li
     return pages
 
 
-def write_outputs(all_pages: Dict[str, List[Page]], out_dir: Path) -> None:
+def write_outputs(all_pages: dict[str, list[Page]], out_dir: Path) -> None:
     """Write per-provider JSON and a combined summary CSV."""
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, pages in all_pages.items():
@@ -257,7 +256,7 @@ def write_outputs(all_pages: Dict[str, List[Page]], out_dir: Path) -> None:
     print(f"\n✅ Wrote {total} page(s) to {out_dir}/  (per-provider JSON + summary.csv)")
 
 
-def ingest_to_rag(all_pages: Dict[str, List[Page]], chunk_size: int, overlap: int) -> None:
+def ingest_to_rag(all_pages: dict[str, list[Page]], chunk_size: int, overlap: int) -> None:
     """Chunk + embed page text and insert into cloud_documents (category 'Competitor')."""
     # Imported lazily so file-only crawls don't require .env / the embedding model.
     from app.db.supabase_client import supabase
@@ -287,13 +286,13 @@ def ingest_to_rag(all_pages: Dict[str, List[Page]], chunk_size: int, overlap: in
     print(f"✅ Ingested {inserted} chunk(s) into cloud_documents (category 'Competitor').")
 
 
-def load_from_files(providers: List[str], out_dir: Path) -> Dict[str, List[Page]]:
+def load_from_files(providers: list[str], out_dir: Path) -> dict[str, list[Page]]:
     """
     Load previously crawled pages from <out_dir>/<provider>.json, dropping news/blog
     pages (per EXCLUDE_KEYWORDS) and JS-empty shells (< 120 chars, e.g. "Loading...").
     Lets you ingest the good pages without re-crawling.
     """
-    all_pages: Dict[str, List[Page]] = {}
+    all_pages: dict[str, list[Page]] = {}
     total_dropped = 0
     for name in providers:
         fp = out_dir / f"{name}.json"
@@ -302,7 +301,7 @@ def load_from_files(providers: List[str], out_dir: Path) -> Dict[str, List[Page]
             all_pages[name] = []
             continue
         records = json.loads(fp.read_text(encoding="utf-8"))
-        kept: List[Page] = []
+        kept: list[Page] = []
         for rec in records:
             tokens = _path_tokens(rec["url"])
             if tokens and any(_phrase_in(tokens, ex) for ex in EXCLUDE_KEYWORDS):
@@ -347,7 +346,7 @@ def main() -> None:
             print(f"\nLoaded {kept} page(s) from files. Add --ingest to insert into cloud_documents.")
         return
 
-    all_pages: Dict[str, List[Page]] = {}
+    all_pages: dict[str, list[Page]] = {}
     for name in targets:
         all_pages[name] = crawl_provider(name, PROVIDERS[name], args.max_pages, args.delay)
 

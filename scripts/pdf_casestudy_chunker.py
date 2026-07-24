@@ -37,7 +37,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List
 
 from pypdf import PdfReader
 
@@ -78,11 +77,11 @@ class PdfChunk:
 
 @dataclass
 class _Study:
-    title: List[str] = field(default_factory=list)   # leading lines before the first anchor
-    lines: List[str] = field(default_factory=list)   # the full study region (header + body)
+    title: list[str] = field(default_factory=list)   # leading lines before the first anchor
+    lines: list[str] = field(default_factory=list)   # the full study region (header + body)
 
 
-def _reflow_lines(raw: str) -> List[str]:
+def _reflow_lines(raw: str) -> list[str]:
     """
     Repair the shredded text pypdf produces, returning clean non-empty lines.
 
@@ -92,7 +91,7 @@ def _reflow_lines(raw: str) -> List[str]:
     Other line breaks (paragraphs, headers, labels) are preserved.
     """
     lines = raw.split("\n")
-    out: List[str] = []
+    out: list[str] = []
     i = 0
     while i < len(lines):
         cur = lines[i]
@@ -118,7 +117,7 @@ def _reflow_lines(raw: str) -> List[str]:
     return [ln.strip() for ln in out if ln.strip()]
 
 
-def _back_over_title(lines: List[str], idx: int, lower_bound: int) -> int:
+def _back_over_title(lines: list[str], idx: int, lower_bound: int) -> int:
     """Return the index where the title block (short, non-prose lines) before `idx` starts."""
     j = idx - 1
     count = 0
@@ -128,7 +127,7 @@ def _back_over_title(lines: List[str], idx: int, lower_bound: int) -> int:
     return j + 1
 
 
-def _split_studies(lines: List[str]) -> List[_Study]:
+def _split_studies(lines: list[str]) -> list[_Study]:
     """
     Segment the document into case studies, robust to the two layouts seen in these PDFs
     (the CUSTOMER metadata block appears either just after OR just before "Executive
@@ -139,7 +138,7 @@ def _split_studies(lines: List[str]) -> List[_Study]:
     cu_idx = [i for i, l in enumerate(lines) if l.upper() == "CUSTOMER"]
 
     # Anchor each study at min(exec summary, nearest customer block).
-    anchors: List[int] = []
+    anchors: list[int] = []
     for e in es_idx:
         nearest = min(cu_idx, key=lambda c: abs(c - e), default=None)
         if nearest is not None and abs(nearest - e) <= _PAIR_WINDOW:
@@ -149,13 +148,13 @@ def _split_studies(lines: List[str]) -> List[_Study]:
     anchors.sort()
 
     # Study region = [title-start of this anchor, title-start of next anchor).
-    starts: List[int] = []
+    starts: list[int] = []
     prev = -1
     for a in anchors:
         starts.append(_back_over_title(lines, a, prev))
         prev = a
 
-    studies: List[_Study] = []
+    studies: list[_Study] = []
     for k, hs in enumerate(starts):
         end = starts[k + 1] if k + 1 < len(starts) else len(lines)
         region = lines[hs:end]
@@ -169,14 +168,14 @@ def _split_studies(lines: List[str]) -> List[_Study]:
     return studies
 
 
-def _parse_metadata(region: List[str]) -> Dict[str, str]:
+def _parse_metadata(region: list[str]) -> dict[str, str]:
     """Parse the label/value metadata block wherever it sits in the study region."""
-    meta: Dict[str, str] = {}
+    meta: dict[str, str] = {}
     i = 0
     while i < len(region):
         label = region[i].upper()
         if label in _META_LABEL_SET and label not in meta:
-            values: List[str] = []
+            values: list[str] = []
             j = i + 1
             while (j < len(region) and region[j].upper() not in _META_LABEL_SET
                    and region[j].lower() not in _VALUE_STOP and len(values) < 10):
@@ -189,20 +188,20 @@ def _parse_metadata(region: List[str]) -> Dict[str, str]:
     return meta
 
 
-def _body_prose(region: List[str]) -> str:
+def _body_prose(region: list[str]) -> str:
     """Return the story body (everything after 'Read the story') as newline-joined lines."""
     lowered = [l.lower() for l in region]
     start = lowered.index(READ_STORY) + 1 if READ_STORY in lowered else 0
     return "\n".join(region[start:])
 
 
-def _exec_summary(region: List[str]) -> str:
+def _exec_summary(region: list[str]) -> str:
     """Return the executive-summary text (between its anchor and the next structural anchor)."""
     lowered = [l.lower() for l in region]
     if EXEC_SUMMARY not in lowered:
         return ""
     start = lowered.index(EXEC_SUMMARY) + 1
-    out: List[str] = []
+    out: list[str] = []
     for l in region[start:]:
         if l.lower() in _VALUE_STOP or l.upper() in _META_LABEL_SET:
             break
@@ -220,7 +219,7 @@ def is_casestudy_pdf(path: Path) -> bool:
 
 
 def chunk_pdf_casestudies(path: Path, industry_fallback: str,
-                          chunk_size: int = 1000, overlap: int = 150) -> List[PdfChunk]:
+                          chunk_size: int = 1000, overlap: int = 150) -> list[PdfChunk]:
     """
     Chunk a customer-story collection PDF into per-study, breadcrumb-tagged chunks.
 
@@ -233,7 +232,7 @@ def chunk_pdf_casestudies(path: Path, industry_fallback: str,
     raw = "\n".join((p.extract_text() or "") for p in PdfReader(str(path)).pages)
     lines = _reflow_lines(raw)
     studies = _split_studies(lines)
-    chunks: List[PdfChunk] = []
+    chunks: list[PdfChunk] = []
 
     for s_idx, study in enumerate(studies):
         meta = _parse_metadata(study.lines)
@@ -273,7 +272,7 @@ def chunk_pdf_casestudies(path: Path, industry_fallback: str,
     return chunks
 
 
-def _preview(paths: List[str], chunk_size: int) -> None:
+def _preview(paths: list[str], chunk_size: int) -> None:
     for raw in paths:
         p = Path(raw)
         if not is_casestudy_pdf(p):

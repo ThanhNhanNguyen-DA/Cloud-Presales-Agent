@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator, List
+from collections.abc import Iterator
 
 import docx
 from docx.document import Document as _Document
@@ -54,7 +54,7 @@ LIST_STYLES = {"List Paragraph"}
 class Section:
     path: str           # breadcrumb, e.g. "Description › Service guide › Quản lý RDS"
     level: int          # heading level of the leaf (1..N)
-    lines: List[str] = field(default_factory=list)
+    lines: list[str] = field(default_factory=list)
     has_table: bool = False
 
 
@@ -90,7 +90,7 @@ def _heading_level(paragraph: Paragraph) -> int | None:
 
 def _table_to_markdown(table: Table) -> str:
     """Render a Word table as a GitHub-flavoured Markdown table."""
-    rows: List[List[str]] = []
+    rows: list[list[str]] = []
     for row in table.rows:
         rows.append([cell.text.strip().replace("\n", " ") for cell in row.cells])
     if not rows:
@@ -103,11 +103,11 @@ def _table_to_markdown(table: Table) -> str:
     return "\n".join(md)
 
 
-def _split_into_sections(path: Path) -> List[Section]:
+def _split_into_sections(path: Path) -> list[Section]:
     """Walk the document and group its content into heading-bounded sections."""
     document = docx.Document(str(path))
-    sections: List[Section] = []
-    stack: List[tuple[int, str]] = []   # (heading level, title)
+    sections: list[Section] = []
+    stack: list[tuple[int, str]] = []   # (heading level, title)
     current: Section | None = None
 
     def breadcrumb() -> str:
@@ -153,10 +153,10 @@ def _split_into_sections(path: Path) -> List[Section]:
     return [s for s in sections if s.path.split(" › ")[-1].strip().lower() not in SKIP_SECTION_TITLES]
 
 
-def _pack_lines(lines: List[str], chunk_size: int, overlap_lines: int = 1) -> List[str]:
+def _pack_lines(lines: list[str], chunk_size: int, overlap_lines: int = 1) -> list[str]:
     """Greedily pack whole lines into <= chunk_size bodies; hard-split giant lines."""
-    chunks: List[List[str]] = []
-    current: List[str] = []
+    chunks: list[list[str]] = []
+    current: list[str] = []
     current_len = 0
 
     for line in lines:
@@ -180,7 +180,7 @@ def _pack_lines(lines: List[str], chunk_size: int, overlap_lines: int = 1) -> Li
     return ["\n".join(c) for c in chunks]
 
 
-def chunk_docx_sections(path: Path, doc_title: str, chunk_size: int = 1000) -> List[DocxChunk]:
+def chunk_docx_sections(path: Path, doc_title: str, chunk_size: int = 1000) -> list[DocxChunk]:
     """
     Chunk a CMC service-documentation DOCX into section-based chunks.
 
@@ -193,7 +193,7 @@ def chunk_docx_sections(path: Path, doc_title: str, chunk_size: int = 1000) -> L
         A list of DocxChunk, each with a breadcrumb header already prepended to `content`.
     """
     sections = _split_into_sections(path)
-    chunks: List[DocxChunk] = []
+    chunks: list[DocxChunk] = []
 
     for section in sections:
         breadcrumb = f"{doc_title} › {section.path}" if section.path != "(intro)" else doc_title
@@ -211,7 +211,7 @@ def chunk_docx_sections(path: Path, doc_title: str, chunk_size: int = 1000) -> L
     return chunks
 
 
-def _preview(paths: List[str], chunk_size: int) -> None:
+def _preview(paths: list[str], chunk_size: int) -> None:
     for raw in paths:
         p = Path(raw)
         chunks = chunk_docx_sections(p, doc_title=p.stem, chunk_size=chunk_size)
