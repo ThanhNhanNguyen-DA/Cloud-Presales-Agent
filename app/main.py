@@ -11,15 +11,14 @@ Async design (pragmatic):
 - Endpoints are `async def`; the graph runs via `ainvoke`/a threaded `stream` so the
   event loop is never blocked by the (synchronous) LLM, Supabase, and embedding calls.
 - Blocking helpers (conversation load/save, feedback) are offloaded with `asyncio.to_thread`.
-
-RAGAS evaluation is an offline batch job (scripts/run_ragas_eval.py), not part of the
-request path.
+- Each answer is scored LIVE with the three reference-free RAGAS metrics, computed AFTER
+  the answer is produced (so it never delays time-to-first-token) and returned with it.
+  The three ground-truth metrics stay in the offline batch job (scripts/run_ragas_eval.py).
 """
 
 import asyncio
 import json
 import time
-from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +28,7 @@ from pydantic import BaseModel
 from app.graph.builder import build_graph
 from app.tools.memory_tools import save_user_feedback
 from app.tools.conversation_tools import load_conversation_history, save_conversation_turn
+from app.evaluation.metrics import evaluate_answer_async
 
 app = FastAPI(title="Cloud Presales Agentic RAG Chatbot API")
 
@@ -44,22 +44,25 @@ graph = build_graph()
 
 class ChatRequest(BaseModel):
     query: str
-    session_id: Optional[str] = None  # groups turns of one conversation; None = stateless
+    session_id: str | None = None  # groups turns of one conversation; None = stateless
 
 
 class ChatResponse(BaseModel):
     route: str
     response: str
+    # Live (reference-free) RAGAS scorecard, scored after the answer and returned with it:
+    # {"context_precision": float|None, "faithfulness": float|None, "answer_relevancy": float|None}.
+    ragas: dict | None = None
 
 
 class FeedbackRequest(BaseModel):
     query: str
     response: str
     is_positive: bool
-    correction: Optional[str] = None
+    correction: str | None = None
 
 
-def _initial_state(query: str, session_id: Optional[str] = None) -> dict:
+def _initial_state(query: str, session_id: str | None = None) -> dict:
     """
     Build a fresh GraphState dict for a single request.
 
@@ -82,7 +85,7 @@ def _initial_state(query: str, session_id: Optional[str] = None) -> dict:
     }
 
 
-def _persist_turn(session_id: Optional[str], query: str, response: Optional[str], route: Optional[str]) -> None:
+def _persist_turn(session_id: str | None, query: str, response: str | None, route: str | None) -> None:
     """Append the user question and the assistant answer to the conversation memory (no-op if stateless)."""
     if not session_id:
         return
@@ -92,7 +95,7 @@ def _persist_turn(session_id: Optional[str], query: str, response: Optional[str]
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """Run the full graph and return the final answer."""
+    """Run the full graph, score the answer live (RAGAS), and return both together."""
     state = await asyncio.to_thread(_initial_state, request.query, request.session_id)
     result = await graph.ainvoke(state)
 
@@ -101,7 +104,14 @@ async def chat(request: ChatRequest):
         _persist_turn, request.session_id, request.query,
         result.get("final_response"), result.get("route"),
     )
-    return ChatResponse(route=result["route"], response=result["final_response"])
+
+    # Live RAGAS: scored after the answer is ready, returned with it.
+    ragas = await evaluate_answer_async(
+        request.query,
+        result.get("final_response") or "",
+        result.get("raw_tool_output") or "",
+    )
+    return ChatResponse(route=result["route"], response=result["final_response"], ragas=ragas)
 
 
 # Nodes that produce the user-facing answer. We stream tokens ONLY from these — the
@@ -131,10 +141,12 @@ async def chat_stream(request: ChatRequest):
       - {"type":"progress","node":...}   after each graph node completes
       - {"type":"ttft","seconds":...}    at the first answer token (time-to-first-token)
       - {"type":"token","text":...}      each answer token as it is generated
-      - {"type":"final","route","response","ttft","total"}   once the graph finishes
+      - {"type":"ragas", ...metrics}     the live scorecard, once the answer is complete
+      - {"type":"final","route","response","ttft","total","ragas"}   once the graph finishes
 
     The sync graph generator is pumped from a worker thread (one `next()` per step) so it
-    never blocks the event loop.
+    never blocks the event loop. RAGAS is scored AFTER the tokens are sent, so it never
+    delays TTFT — the scorecard simply appears right after the answer.
     """
 
     async def event_generator():
@@ -142,6 +154,7 @@ async def chat_stream(request: ChatRequest):
         ttft = None
         route = None
         final_response = None
+        raw_output = None
 
         state = await asyncio.to_thread(_initial_state, request.query, request.session_id)
         stream = graph.stream(state, stream_mode=["updates", "messages"])
@@ -158,6 +171,7 @@ async def chat_stream(request: ChatRequest):
                     if isinstance(node_state, dict):
                         route = node_state.get("route") or route
                         final_response = node_state.get("final_response") or final_response
+                        raw_output = node_state.get("raw_tool_output") or raw_output
             else:  # mode == "messages"
                 chunk, meta = payload
                 if meta.get("langgraph_node") not in ANSWER_NODES:
@@ -173,12 +187,17 @@ async def chat_stream(request: ChatRequest):
         # Persist the conversation turn so a fast follow-up sees it.
         await asyncio.to_thread(_persist_turn, request.session_id, request.query, final_response, route)
 
+        # Live RAGAS: scored after the tokens (never delays TTFT), emitted then echoed in `final`.
+        ragas = await evaluate_answer_async(request.query, final_response or "", raw_output or "")
+        yield f"data: {json.dumps({'type': 'ragas', **ragas}, ensure_ascii=False)}\n\n"
+
         final_msg = {
             "type": "final",
             "route": route,
             "response": final_response,
             "ttft": round(ttft, 3) if ttft is not None else None,
             "total": round(time.perf_counter() - t0, 3),
+            "ragas": ragas,
         }
         yield f"data: {json.dumps(final_msg, ensure_ascii=False)}\n\n"
 

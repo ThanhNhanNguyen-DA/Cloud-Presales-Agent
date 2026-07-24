@@ -26,8 +26,8 @@ Design notes
 
 from __future__ import annotations
 
+import asyncio
 import re
-from typing import Optional
 
 import numpy as np
 
@@ -45,7 +45,7 @@ def _get_judge():
     return _judge
 
 
-def _score_from_llm(prompt: str) -> Optional[float]:
+def _score_from_llm(prompt: str) -> float | None:
     """Ask the judge for a single 0.0–1.0 number and parse it; None on any failure."""
     try:
         raw = _get_judge().invoke(prompt).content
@@ -64,7 +64,7 @@ def _cosine(a, b) -> float:
     return float(np.dot(va, vb) / denom)
 
 
-def _cosine_texts(a: str, b: str) -> Optional[float]:
+def _cosine_texts(a: str, b: str) -> float | None:
     """Cosine similarity between two texts' embeddings, clamped to [0, 1]; None if empty."""
     if not a.strip() or not b.strip():
         return None
@@ -108,7 +108,7 @@ Reply with ONLY a single number between 0.0 and 1.0
 (1.0 = every ground-truth fact is present in the context, 0.0 = none is). No words."""
 
 
-def context_precision(question: str, context: str) -> Optional[float]:
+def context_precision(question: str, context: str) -> float | None:
     """Retrieval signal-to-noise: fraction of the retrieved context relevant to the question."""
     if not question.strip() or not context.strip():
         return None
@@ -116,7 +116,7 @@ def context_precision(question: str, context: str) -> Optional[float]:
         question=question[:2000], context=context[:6000]))
 
 
-def context_recall(ground_truth: str, context: str) -> Optional[float]:
+def context_recall(ground_truth: str, context: str) -> float | None:
     """Retrieval completeness: fraction of ground-truth facts present in the retrieved context."""
     if not ground_truth.strip() or not context.strip():
         return None
@@ -143,7 +143,7 @@ Reply with ONLY a single number between 0.0 and 1.0
 (1.0 = every claim is supported by the context, 0.0 = none is). No words, no units."""
 
 
-def faithfulness(answer: str, context: str) -> Optional[float]:
+def faithfulness(answer: str, context: str) -> float | None:
     """Generation grounding: fraction of answer claims supported by the retrieved context."""
     if not answer.strip() or not context.strip():
         return None  # nothing to ground against (e.g. general route)
@@ -151,7 +151,7 @@ def faithfulness(answer: str, context: str) -> Optional[float]:
         context=context[:6000], answer=answer[:4000]))
 
 
-def answer_relevancy(question: str, answer: str) -> Optional[float]:
+def answer_relevancy(question: str, answer: str) -> float | None:
     """Generation relevance: how directly the answer addresses the question (embedding cosine)."""
     return _cosine_texts(question, answer)
 
@@ -175,7 +175,7 @@ Reply with ONLY a single number between 0.0 and 1.0
 (1.0 = fully correct vs the ground truth, 0.0 = entirely wrong). No words, no units."""
 
 
-def answer_correctness(answer: str, ground_truth: str) -> Optional[float]:
+def answer_correctness(answer: str, ground_truth: str) -> float | None:
     """End-to-end accuracy: factual agreement of the answer with the golden ground truth."""
     if not answer.strip() or not ground_truth.strip():
         return None
@@ -183,6 +183,27 @@ def answer_correctness(answer: str, ground_truth: str) -> Optional[float]:
         ground_truth=ground_truth[:4000], answer=answer[:4000]))
 
 
-def answer_similarity(answer: str, ground_truth: str) -> Optional[float]:
+def answer_similarity(answer: str, ground_truth: str) -> float | None:
     """End-to-end semantic resemblance between the answer and the ground truth (embedding cosine)."""
     return _cosine_texts(answer, ground_truth)
+
+
+# =====================================================================================
+# Live scoring — the reference-free subset, scored per answer (no ground truth needed)
+# =====================================================================================
+
+async def evaluate_answer_async(question: str, answer: str, context: str = "") -> dict[str, float | None]:
+    """
+    Score one answer live with the three reference-free metrics, concurrently.
+
+    The judge LLM calls (context_precision, faithfulness) and the embedding forward-pass
+    (answer_relevancy) are blocking/CPU-bound, so each is offloaded to a worker thread with
+    asyncio.to_thread and the three run together via asyncio.gather — keeping the FastAPI
+    event loop free. Called right after the answer is produced (see app/main.py).
+    """
+    cp, fth, rel = await asyncio.gather(
+        asyncio.to_thread(context_precision, question, context),
+        asyncio.to_thread(faithfulness, answer, context),
+        asyncio.to_thread(answer_relevancy, question, answer),
+    )
+    return {"context_precision": cp, "faithfulness": fth, "answer_relevancy": rel}

@@ -22,7 +22,8 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from langchain_groq import ChatGroq
 
@@ -96,8 +97,8 @@ class FallbackChatLLM:
         rate_limit_max_retries: int = 4,
         rate_limit_wait_cap: float = 30.0,
         underlying_max_retries: int = 0,
-        request_timeout: Optional[float] = None,
-        _tools: Optional[Any] = None,
+        request_timeout: float | None = None,
+        _tools: Any | None = None,
         **model_kwargs: Any,
     ) -> None:
         if not models:
@@ -121,7 +122,7 @@ class FallbackChatLLM:
         self._model_kwargs = model_kwargs
         self._tools = _tools
 
-        self._llms: List[Any] = []
+        self._llms: list[Any] = []
         for name in self._models:
             llm: Any = ChatGroq(
                 model=name,
@@ -153,7 +154,7 @@ class FallbackChatLLM:
         model is rate-limited in one pass, wait (honouring retry-after) and retry the whole
         chain, up to `rate_limit_max_retries` times, before raising.
         """
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         for outer in range(self._rate_limit_max_retries + 1):
             for index, llm in enumerate(self._llms):
@@ -197,7 +198,7 @@ class FallbackChatLLM:
 
 def get_chat_llm(
     temperature: float = 0.0,
-    models: Optional[Sequence[str]] = None,
+    models: Sequence[str] | None = None,
     **kwargs: Any,
 ) -> FallbackChatLLM:
     """

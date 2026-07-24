@@ -38,7 +38,6 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
-from typing import Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -57,7 +56,7 @@ DEFAULT_SET = ROOT / "data" / "eval" / "ground_truth.json"
 OUTPUT_PATH = ROOT / "data" / "eval" / "latest_ragas.json"
 
 # The six metrics, grouped exactly as the evaluation criteria define them.
-GROUPS: Dict[str, List[str]] = {
+GROUPS: dict[str, list[str]] = {
     "Retrieval": ["context_precision", "context_recall"],
     "Generation": ["faithfulness", "answer_relevancy"],
     "End-to-End": ["answer_correctness", "answer_similarity"],
@@ -91,7 +90,7 @@ def _run_graph(graph, question: str) -> dict:
     }
 
 
-def _score(question: str, answer: str, context: str, ground_truth: str) -> Dict[str, Optional[float]]:
+def _score(question: str, answer: str, context: str, ground_truth: str) -> dict[str, float | None]:
     """Compute all six metrics for one sample."""
     return {
         # Retrieval
@@ -106,12 +105,12 @@ def _score(question: str, answer: str, context: str, ground_truth: str) -> Dict[
     }
 
 
-def _mean_or_none(values: List[Optional[float]]) -> Optional[float]:
+def _mean_or_none(values: list[float | None]) -> float | None:
     present = [v for v in values if isinstance(v, (int, float))]
     return round(mean(present), 3) if present else None
 
 
-def evaluate_set(samples: List[dict]) -> dict:
+def evaluate_set(samples: list[dict]) -> dict:
     """Run the graph + score every labelled sample, returning grouped aggregate + per-sample results."""
     graph = build_graph()
     per_sample = []
