@@ -11,3 +11,4 @@ venv/
 /data
 /evaluation
 PROJECT_REPORT.md
+pytest.ini
