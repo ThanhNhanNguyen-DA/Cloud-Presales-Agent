@@ -3,8 +3,6 @@ Memory tools for episodic feedback storage and retrieval.
 Enables self-learning from user corrections without LLM fine-tuning.
 """
 
-from typing import Optional
-
 from langchain_core.tools import tool
 from app.db.supabase_client import supabase
 from app.tools.embedding_tool import embed_text
@@ -15,7 +13,7 @@ def save_user_feedback(
     query: str,
     response: str,
     is_positive: bool,
-    correction: Optional[str] = None
+    correction: str | None = None
 ) -> str:
     """
     Stores a Presales staff member's feedback or correction into the database,

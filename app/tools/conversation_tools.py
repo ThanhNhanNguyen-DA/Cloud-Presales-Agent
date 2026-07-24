@@ -17,14 +17,12 @@ not chosen by the LLM. Both are best-effort — any DB error is logged and swall
 memory hiccup never breaks the answer.
 """
 
-from typing import List, Optional
-
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 from app.db.supabase_client import supabase
 
 
-def load_conversation_history(session_id: Optional[str], max_turns: int = 5) -> List[BaseMessage]:
+def load_conversation_history(session_id: str | None, max_turns: int = 5) -> list[BaseMessage]:
     """
     Load the most recent turns of a conversation as LangChain messages.
 
@@ -48,7 +46,7 @@ def load_conversation_history(session_id: Optional[str], max_turns: int = 5) -> 
             .execute()
         )
         rows = list(reversed(response.data or []))  # …then flip back to chronological order.
-        messages: List[BaseMessage] = []
+        messages: list[BaseMessage] = []
         for row in rows:
             if row["role"] == "user":
                 messages.append(HumanMessage(content=row["content"]))
@@ -61,10 +59,10 @@ def load_conversation_history(session_id: Optional[str], max_turns: int = 5) -> 
 
 
 def save_conversation_turn(
-    session_id: Optional[str],
+    session_id: str | None,
     role: str,
     content: str,
-    route: Optional[str] = None,
+    route: str | None = None,
 ) -> None:
     """
     Append one message to a conversation's history.
