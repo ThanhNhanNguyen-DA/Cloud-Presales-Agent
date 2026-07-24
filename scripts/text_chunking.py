@@ -4,10 +4,7 @@ Generic recursive character chunking, shared by the ingestion scripts.
 Kept dependency-free (no embedding model, no DB) so chunkers and tests can import it
 cheaply.
 """
-from typing import List
-
-
-def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 150) -> List[str]:
+def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 150) -> list[str]:
     """
     Split text into overlapping chunks, preferring paragraph (newline) boundaries.
 
@@ -16,7 +13,7 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 150) -> List[st
     tail of the previous chunk so context isn't lost across boundaries.
     """
     paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
-    chunks: List[str] = []
+    chunks: list[str] = []
     current = ""
 
     for para in paragraphs:
@@ -31,7 +28,7 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 150) -> List[st
         chunks.append(current.strip())
 
     # Hard-split any chunk that is still too large (e.g. one giant paragraph).
-    final: List[str] = []
+    final: list[str] = []
     for chunk in chunks:
         if len(chunk) <= chunk_size * 1.5:
             final.append(chunk)

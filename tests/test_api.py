@@ -19,17 +19,21 @@ def test_health_check():
 
 
 def test_chat_endpoint():
-    """The endpoint is async and runs the graph via ainvoke; no evaluation in the request path."""
-    mock_result = {"route": "general", "final_response": "Hello! How can I help you today?"}
-    with patch("app.main.graph") as mock_graph:
+    """The endpoint is async, runs the graph via ainvoke, and returns the live RAGAS scorecard."""
+    mock_result = {"route": "general", "final_response": "Hello! How can I help you today?",
+                   "raw_tool_output": None}
+    ragas = {"context_precision": None, "faithfulness": None, "answer_relevancy": 0.7}
+    with patch("app.main.graph") as mock_graph, \
+         patch("app.main.evaluate_answer_async", new=AsyncMock(return_value=ragas)) as mock_eval:
         mock_graph.ainvoke = AsyncMock(return_value=mock_result)
         response = client.post("/chat", json={"query": "Hello"})
 
     assert response.status_code == 200
     data = response.json()
-    assert "response" in data
     assert len(data["response"]) > 0
     assert data["route"] == "general"
+    mock_eval.assert_awaited()          # scored live, after the answer
+    assert data["ragas"] == ragas       # returned with the answer
 
 
 def test_chat_stream_endpoint():
@@ -38,16 +42,18 @@ def test_chat_stream_endpoint():
         yield ("updates", {"supervisor": {"route": "general", "final_response": None}})
         yield ("updates", {"general": {"route": "general", "final_response": "Hi there!"}})
 
-    with patch("app.main.graph") as mock_graph:
+    ragas = {"context_precision": None, "faithfulness": None, "answer_relevancy": 0.7}
+    with patch("app.main.graph") as mock_graph, \
+         patch("app.main.evaluate_answer_async", new=AsyncMock(return_value=ragas)):
         mock_graph.stream.side_effect = fake_stream
         response = client.post("/chat/stream", json={"query": "Hello"})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
     body = response.text
-    # Progress events for each node, then a final event carrying the answer.
     assert '"type": "progress"' in body
     assert '"node": "supervisor"' in body
+    assert '"type": "ragas"' in body    # live scorecard emitted after the answer
     assert '"type": "final"' in body
     assert "Hi there!" in body
 
