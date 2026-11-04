@@ -18,9 +18,12 @@ EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "512"))
 #   LLM_MODELS          default chain (specialist agents, general answers); GROQ_MODELS is
 #                       accepted as the old name.
 #   <ROLE>_MODELS       optional per-role chain: SUPERVISOR_MODELS, GRADER_MODELS, JUDGE_MODELS.
-# Defaults: GPT-OSS 120B, then Qwen3.8 27B (the Llama 3.x models used originally were
-# removed from Groq in 2026). Benchmarks: scripts/eval_orchestrator.py.
-DEFAULT_MODELS = "openai/gpt-oss-120b,qwen/qwen3.8-27b"
+# Default chain (benchmarks: scripts/eval_orchestrator.py, 16 tool-calling cases):
+#   gpt-oss-120b  tools 1.00 · gpt-oss-20b tools 1.00 · gemini-3.5-flash-lite tools 1.00 (slow on
+#   the free tier, skipped without GEMINI_API_KEY). qwen3.8-27b is NOT in the agent chain: it
+#   produced invalid tool names (tools 0.44); it is the supervisor's model instead (no tools).
+# (The Llama 3.x models used originally were removed from Groq in 2026.)
+DEFAULT_MODELS = "openai/gpt-oss-120b,openai/gpt-oss-20b,gemini:gemini-3.5-flash-lite"
 
 
 def _model_list(value: str) -> list[str]:

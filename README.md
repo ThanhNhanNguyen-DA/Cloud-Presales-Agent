@@ -2,7 +2,7 @@
 
 **An AI Agent for cloud presales — it routes each question to a specialist tool, fact-checks every number before it reaches the customer, and learns from human corrections.**
 
-Built with **LangGraph** (orchestration), **Groq / GPT-OSS 120B** (LLM, Qwen3.8 27B fallback), **Qwen3-Embedding** (local vectorisation), **Supabase / pgvector** (vector + structured data), **FastAPI** and **Streamlit**.
+Built with **LangGraph** (orchestration), **Groq / GPT-OSS 120B** (agents; Qwen3.8 27B routes), **Qwen3-Embedding** (local vectorisation), **Supabase / pgvector** (vector + structured data), **FastAPI** and **Streamlit**.
 
 ---
 
@@ -58,7 +58,7 @@ Called at **six** places in the request path (below), plus the RAGAS judge for t
 | 5 | General answer | [`graph/builder.py`](app/graph/builder.py) | 0.3 | Direct, no tools |
 | 6 | Grounding grader | [`graders/self_rag_grader.py`](app/graders/self_rag_grader.py) | 0 | Prompt → PASS/FAIL |
 
-All calls go through one wrapper, [`app/llm.py`](app/llm.py): an ordered model chain (`openai/gpt-oss-120b` → `qwen/qwen3.8-27b`) that switches model the moment one is rate-limited, and — if all are exhausted — waits out the limit (honouring `retry-after`) and retries, so a free-tier rate limit rides out instead of crashing. Every prompt follows the same recipe: **role · context · task · output format · anti-hallucination constraints**.
+All calls go through one wrapper, [`app/llm.py`](app/llm.py): an ordered model chain (agents: `openai/gpt-oss-120b` → `openai/gpt-oss-20b` → `gemini:gemini-3.5-flash-lite`; supervisor: `qwen/qwen3.8-27b` → `openai/gpt-oss-120b`; see `scripts/eval_orchestrator.py`) that switches model the moment one is rate-limited, and — if all are exhausted — waits out the limit (honouring `retry-after`) and retries, so a free-tier rate limit rides out instead of crashing. Every prompt follows the same recipe: **role · context · task · output format · anti-hallucination constraints**.
 
 ### Data (Supabase / pgvector)
 
@@ -129,7 +129,7 @@ uv pip sync requirements.lock                       # exact tested versions (app
 # to upgrade: uv pip compile requirements-dev.txt -o requirements.lock --upgrade
 test -f .env || cp .env.example .env                 # fill in GROQ_API_KEY, SUPABASE_URL, SUPABASE_KEY
 ```
-> `.env`: `EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B`, `EMBEDDING_DIM=512`. Optional `GROQ_MODELS=openai/gpt-oss-120b,qwen/qwen3.8-27b`. The embedding model (~1.2 GB) caches locally on first use — no key needed for it.
+> `.env`: `EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B`, `EMBEDDING_DIM=512`. Optional `LLM_MODELS=…` / `SUPERVISOR_MODELS=…` (entries `provider:model`, see `.env.example`). The embedding model (~1.2 GB) caches locally on first use — no key needed for it.
 
 ```bash
 # 2. Database — run sql/schema.sql, sql/seed_data.sql, then sql/migrations/*.sql in order,

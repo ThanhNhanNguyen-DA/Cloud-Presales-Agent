@@ -13,7 +13,7 @@
 
 | | Trước | Sau |
 |---|---|---|
-| App chạy được với Groq | ❌ Model Llama đã bị Groq gỡ, `/chat` lỗi 100% | ✅ `openai/gpt-oss-120b`, dự phòng `qwen/qwen3.8-27b` |
+| App chạy được với Groq | ❌ Model Llama đã bị Groq gỡ, `/chat` lỗi 100% | ✅ Agent: `gpt-oss-120b` → `gpt-oss-20b` → Gemini; supervisor: `qwen3.8-27b` |
 | Số test / kết quả | 59 test (không chạy được trên môi trường cũ) | **188 test, đều qua** (165 sau đợt 1) |
 | Thời gian chạy test | ~34 giây | ~3,5 giây |
 | Import `app.main` | ~17 giây | ~2,6 giây |
@@ -254,15 +254,16 @@ Benchmark bằng `scripts/eval_orchestrator.py` gồm 3 bộ: 54 câu route, 16 
 | Model | Route (prompt cũ → mới) | Tool | Grader | Route p50 |
 |---|---|---|---|---|
 | Groq `openai/gpt-oss-120b` | 0,94 → 0,98 | **1,00** | **1,00** | 0,75 s |
-| Groq `qwen/qwen3.8-27b` | 0,92 → **1,00** | 0,81 | 1,00 | **0,35 s** |
+| Groq `qwen/qwen3.8-27b` | 0,92 → **1,00** | **0,44–0,81** (sai tên tool) | 1,00 | **0,35 s** |
 | Groq `openai/gpt-oss-20b` | 0,92 | 1,00 | 0,90 | 1,0 s |
-| Gemini `gemini-3.5-flash-lite` | 1,00 (prompt cũ) | 1,00 | 1,00 | 1,3–17 s (gói miễn phí nghẽn) |
+| Gemini `gemini-3.5-flash-lite` | 1,00 (prompt cũ) | 1,00 | 1,00 | 1,3–17 s (gói miễn phí nghẽn; tool/grader ~11–12 s) |
 | Gemini `gemini-3.5-flash` | hết quota theo ngày | – | – | – |
 | HF router (Qwen3-Next, Llama-4-Scout) | **token HF không hợp lệ (401)** | – | – | – |
 
 **Lựa chọn:**
 - **Supervisor:** `qwen3.8-27b`, dự phòng `gpt-oss-120b` (đã đặt làm mặc định).
-- **Agent và grader:** `gpt-oss-120b`.
+- **Agent và grader:** `gpt-oss-120b` → `gpt-oss-20b` → `gemini-3.5-flash-lite`. Gemini chỉ dùng khi có key.
+  Lần chạy lại benchmark cho thấy `qwen3.8-27b` liên tục **sinh sai tên tool** (tool chỉ đạt 0,44, lần đầu 0,81), nên mình đã **gỡ nó khỏi chuỗi dự phòng của agent** (trước đó nó là model dự phòng duy nhất). Qwen chỉ còn làm supervisor, vai trò không cần gọi tool.
 - **Gemini:** chỉ nên dùng làm dự phòng, không làm model chính.
 
 **Cải thiện agent:**
@@ -275,7 +276,7 @@ Benchmark bằng `scripts/eval_orchestrator.py` gồm 3 bộ: 54 câu route, 16 
 ## 6. Cấu hình mới (`.env`, đều không bắt buộc)
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
-| `LLM_MODELS` (tên cũ `GROQ_MODELS`) | `openai/gpt-oss-120b,qwen/qwen3.8-27b` | Chuỗi model cho các agent |
+| `LLM_MODELS` (tên cũ `GROQ_MODELS`) | `openai/gpt-oss-120b,openai/gpt-oss-20b,gemini:gemini-3.5-flash-lite` | Chuỗi model cho các agent (`.env` của bạn đã được cập nhật) |
 | `SUPERVISOR_MODELS` | `qwen/qwen3.8-27b,openai/gpt-oss-120b` | Chuỗi model cho supervisor |
 | `GRADER_MODELS`, `JUDGE_MODELS` | theo `LLM_MODELS` | Grader và RAGAS judge |
 | `GEMINI_API_KEY`, `HUGGINGFACEHUB_API_TOKEN` | – | Bật các model `gemini:` / `hf:` (model nào thiếu key sẽ bị bỏ qua) |
