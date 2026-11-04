@@ -25,7 +25,7 @@ from app.llm import get_chat_llm
 
 logger = logging.getLogger(__name__)
 
-grader_llm = get_chat_llm(temperature=0)
+grader_llm = get_chat_llm(temperature=0, role="grader")
 
 MAX_GRADING_ATTEMPTS = 2  # first answer + one retry
 

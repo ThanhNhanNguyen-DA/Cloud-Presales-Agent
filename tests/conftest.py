@@ -38,6 +38,8 @@ def _block_external_services(monkeypatch):
 
     monkeypatch.setattr(supabase_client, "get_supabase_client", _blocked("the Supabase client"))
     monkeypatch.setattr(embedding_tool, "get_embedding_model", _blocked("the embedding model"))
+    from app.tools import reranker
+    monkeypatch.setattr(reranker, "get_reranker", _blocked("the reranker model"))
 
 
 @pytest.fixture(autouse=True)

@@ -16,15 +16,30 @@ from app.tools.memory_tools import retrieve_past_experiences
 logger = logging.getLogger(__name__)
 
 
-llm = get_chat_llm(temperature=0)
+llm = get_chat_llm(temperature=0, role="supervisor")
 
 ROUTING_PROMPT = """You are the Supervisor for the Presales Cloud Chatbot system.
 Classify the LATEST question into EXACTLY one of these groups: calculator, document, competitor, general.
 
-- calculator: questions about cost calculation, backup duration, VM sizing, storage/IOPS sizing.
-- document: questions about technical documentation, SLA, security, or legal compliance.
-- competitor: questions comparing services with AWS/Azure/GCP.
-- general: greetings or anything that doesn't fit the 3 groups above.
+- calculator: compute a number from the user's inputs — backup duration, storage cost per month,
+  VM sizing (vCPU/RAM for N concurrent users), database growth / storage tier for an IOPS need.
+- document: anything about OUR OWN cloud services — what a service does, its features, specs, limits,
+  how to create/configure/use it, SLA and uptime, security certifications, legal compliance.
+  Our services include: Cloud Server, Object Storage, ELB (load balancer), Auto Scaling, VPC, VPN,
+  RDS / RDS for MySQL, Key Management Service, Cloud Trace, Elastic IP, Elastic GPU, Cloud Kafka,
+  DaaS, Terraform, Availability Zones.
+- competitor: the question names a competitor — AWS / Azure / GCP services (what is our equivalent,
+  compare, migrate) or Vietnamese providers (VNG Cloud, FPT Cloud, Bizfly, VNPT, Viettel IDC): their
+  services, features, SLAs or prices.
+- general: greetings, thanks, small talk, questions about this assistant, or off-topic requests.
+
+Examples:
+"Cách thêm listener HTTPS cho Load Balancer?" -> document
+"Cloud Kafka giới hạn bao nhiêu topic?" -> document
+"AWS DynamoDB bên mình có gì tương đương?" -> competitor
+"Bảng giá Object Storage của Viettel IDC?" -> competitor
+"Ứng dụng Go 300 người dùng đồng thời cần bao nhiêu RAM?" -> calculator
+"Cảm ơn, vậy là đủ rồi" -> general
 {history_section}
 LATEST question: {query}
 

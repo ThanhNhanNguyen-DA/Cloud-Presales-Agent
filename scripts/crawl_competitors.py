@@ -1,35 +1,36 @@
 """
-Crawl public data from Vietnamese cloud competitors (VNG, Viettel, FPT, CMC, Bizfly).
+Crawl public product & pricing pages of Vietnamese cloud competitors.
 
-Design principle — "only correct data": this crawler NEVER fabricates figures. For
-every page it fetches it stores exactly what the page returned (source URL, fetch
-timestamp, page title, cleaned text, and any HTML tables found verbatim). Fields it
-cannot parse with confidence are left empty rather than guessed. What you get is a
-faithful record of the real public pages, which you can review before trusting.
+Design principle — "only correct data": this crawler NEVER fabricates figures. For every
+page it stores exactly what the page returned (source URL, fetch time, title, cleaned
+text, and HTML tables verbatim). Nothing is inferred or filled in.
 
-It is polite by default: it honours each site's robots.txt, sends an identifying
-User-Agent, waits between requests, and only follows same-domain links whose URL
-looks like a product / pricing / service page (depth 1 from the homepage).
+Polite by default: honours robots.txt (and skips sites whose robots.txt reserves AI use via
+Content-Signal), sends an identifying User-Agent, waits between requests, and only fetches
+same-domain product / pricing pages.
+
+Page discovery (v2), per provider:
+  * the provider's sitemap.xml (when it has one), filtered by a provider-specific URL regex;
+  * links on the homepage and on "service list" seed pages, filtered the same way;
+  * news / blog / events / careers pages are always excluded, and Vietnamese pages are
+    preferred (an /en/ page is skipped when its Vietnamese twin is also queued).
+
+Cleaning:
+  * menu / footer lines that repeat on most pages of a provider are removed;
+  * pages whose text is still tiny are reported as JS-rendered (needs a headless browser).
 
 Outputs (default → ./data/competitors/):
-  * <provider>.json   — one record per crawled page (title, text, tables, url, time)
-  * summary.csv       — one row per page (provider, url, title, #tables, text length)
+  * <provider>.json — one record per kept page;   summary.csv — one row per page.
 
-Optionally, with --ingest, the cleaned page text is chunked, embedded (local Qwen),
-and inserted into the `cloud_documents` table (category "Competitor") for RAG.
+With --ingest, each page becomes text chunks + one chunk per pricing-table row group (the
+table header is repeated in every chunk), embedded with the local Qwen model and written to
+`cloud_documents` with category "Competitor". Re-ingesting a provider first deletes its
+previous Competitor rows, so the store never holds two crawls of the same site.
 
 Usage:
-    # Crawl all providers, write files only (review first — recommended)
-    python -m scripts.crawl_competitors
-
-    # Only some providers, more pages each
-    python -m scripts.crawl_competitors --providers vng fpt --max-pages 12
-
-    # Crawl AND ingest the text into the RAG store
-    python -m scripts.crawl_competitors --ingest
-
-Requires: requests, beautifulsoup4 (in requirements.txt). --ingest additionally needs
-a configured .env (SUPABASE_*) and downloads the embedding model on first use.
+    python -m scripts.crawl_competitors                       # crawl all, write files (review!)
+    python -m scripts.crawl_competitors --providers vnpt fpt  # subset
+    python -m scripts.crawl_competitors --from-files --ingest # ingest the reviewed files
 """
 
 from __future__ import annotations
@@ -39,8 +40,9 @@ import csv
 import json
 import re
 import time
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, UTC
+from collections import Counter
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
@@ -48,38 +50,60 @@ from urllib.robotparser import RobotFileParser
 import requests
 from bs4 import BeautifulSoup
 
-# Public homepages of Vietnamese cloud providers (non-bigtech competitors).
-PROVIDERS: dict[str, str] = {
-    "vng": "https://vngcloud.vn/",
-    "viettel": "https://viettelcloud.vn/",
-    "fpt": "https://fptcloud.com/",
-    "cmc": "https://cmccloud.vn/",
-    "bizfly": "https://bizflycloud.vn/",
-}
-
-# A same-domain link is followed only if its URL path contains one of these slugs,
-# matched on whole hyphen-delimited tokens (so "gia" matches .../bang-gia but NOT
-# .../giao-duc). This keeps the crawl on product/pricing/service pages.
-LINK_KEYWORDS = (
-    "bang-gia", "gia", "pricing", "price",
-    "san-pham", "product", "products", "dich-vu", "service", "services",
-    "cloud-server", "server", "storage", "luu-tru", "database",
-    "kubernetes", "k8s", "cdn", "solution", "solutions", "giai-phap",
-)
-
-# Any URL whose path contains one of these (news, blog, careers, PR…) is rejected,
-# even if it also matches a keyword — this kept CMC news pages out of the crawl.
-EXCLUDE_KEYWORDS = (
-    "tin-tuc", "blog", "news", "khuyen-mai", "tuyen-dung", "su-kien",
-    "event", "events", "ve-chung-toi", "about", "lien-he", "contact",
-    "careers", "bao-chi", "press", "webinar", "case-study",
-)
-
 USER_AGENT = (
     "cloud-presales-agent competitor-research bot "
     "(+internal presales tooling; contact: presales team)"
 )
 HEADERS = {"User-Agent": USER_AGENT}
+
+# Always excluded, whatever the provider (news, blog, marketing, account pages…).
+EXCLUDE_RE = re.compile(
+    r"/(tin-tuc|news|blog|blogs|events?|su-kien|khuyen-mai|promotions?|tuyen-dung|careers?|"
+    r"tac-gia|ve-chung-toi|about|lien-he|contacts?|bao-chi|press|webinar|case-stud(y|ies)|"
+    r"dang-nhap|dang-ky|login|register|account|search|tim-kiem|tai-lieu)(/|$|-)",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class Provider:
+    name: str
+    homepage: str
+    include: str                     # regex a URL path must match to be fetched
+    sitemap: str | None = None
+    seeds: tuple[str, ...] = ()      # listing pages whose links are followed (depth 1)
+    role: str = "competitor"         # "competitor" or "own" (our own product site)
+    sitemap_only: bool = False       # accept homepage/seed links only if also in the sitemap
+    note: str = ""
+
+
+PROVIDERS: dict[str, Provider] = {p.name: p for p in (
+    Provider("vng", "https://vngcloud.vn/", r"^/(en/)?(product|solution)/[^/]+$",
+             sitemap="https://vngcloud.vn/sitemap.xml"),
+    Provider("fpt", "https://fptcloud.com/", r"^/(product/[^/]+|bang-gia|san-pham)$",
+             seeds=("https://fptcloud.com/san-pham",), note="no sitemap"),
+    Provider("bizfly", "https://bizflycloud.vn/",
+             r"^/(?!tong-dai-ai|ai-xu-ly-ho-so|voice-bot|call-center|qc-assistant|business-email|"
+             r"email-transaction)[a-z0-9-]+(/bang-gia|/[a-z0-9-]+)?$",
+             sitemap="https://bizflycloud.vn/sitemap.xml",
+             seeds=("https://bizflycloud.vn/danh-sach-dich-vu",), sitemap_only=True),
+    Provider("vnpt", "https://cloud.vnpt.vn/", r"^/dich-vu/[^/]+$",
+             sitemap="https://cloud.vnpt.vn/sitemap.xml",
+             note="cloud.vnpt.vn (vnptcloud.vn reserves AI use via Content-Signal and is not crawled)"),
+    Provider("viettelidc", "https://viettelidc.com.vn/",
+             r"^/(dich-vu(/[^/]+)?|dich-vu-[a-z-]+|CloudServer|StartCloud|VirtualPrivateCloud)$",
+             sitemap="https://viettelidc.com.vn/sitemap.xml"),
+    Provider("viettel", "https://viettelcloud.vn/", r"^/(products?|san-pham)(/[^/]+)?$",
+             sitemap="https://viettelcloud.vn/sitemap.xml",
+             note="site is rendered client-side; plain HTTP returns an empty shell"),
+    Provider("cmc", "https://cmccloud.vn/", r"^/dich-vu(/[^/]+)?$",
+             sitemap="https://cmccloud.vn/sitemap.xml", role="own",
+             note="our own product site — ingested as category 'Product', not 'Competitor'"),
+)}
+DEFAULT_PROVIDERS = [p for p, cfg in PROVIDERS.items() if cfg.role == "competitor"]
+
+MIN_PAGE_CHARS = 300          # below this (after cleaning) the page is treated as JS-only
+BOILERPLATE_SHARE = 0.5       # a line on ≥ 50% of a provider's pages is menu/footer noise
 
 
 @dataclass
@@ -92,24 +116,27 @@ class Page:
     tables: list[list[list[str]]] = field(default_factory=list)  # tables[t][row][cell]
 
 
-def _robots_for(base_url: str) -> RobotFileParser:
-    """Load and parse robots.txt for the site of `base_url` (fail-open on error)."""
+# --------------------------------------------------------------------------- fetching
+def _robots_for(base_url: str) -> tuple[RobotFileParser, bool]:
+    """Parse robots.txt; also report whether it reserves AI input/training (Content-Signal)."""
     parsed = urlparse(base_url)
-    robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
     rp = RobotFileParser()
+    ai_reserved = False
     try:
-        resp = requests.get(robots_url, headers=HEADERS, timeout=10)
+        resp = requests.get(f"{parsed.scheme}://{parsed.netloc}/robots.txt", headers=HEADERS, timeout=10)
         if resp.status_code == 200:
             rp.parse(resp.text.splitlines())
+            signals = " ".join(re.findall(r"(?im)^content-signal:\s*(.+)$", resp.text)).lower()
+            ai_reserved = "ai-input=no" in signals or "ai-train=no" in signals
         else:
             rp.allow_all = True
     except Exception:
-        rp.allow_all = True  # if robots.txt can't be read, don't block ourselves
-    return rp
+        rp.allow_all = True
+    return rp, ai_reserved
 
 
-def _fetch(url: str, timeout: float = 15.0) -> str | None:
-    """GET `url`; return HTML text on a 200 HTML response, else None."""
+def _fetch(url: str, timeout: float = 20.0) -> str | None:
+    """GET `url`; return HTML on a 200 HTML response, else None."""
     try:
         resp = requests.get(url, headers=HEADERS, timeout=timeout)
     except Exception as exc:
@@ -120,76 +147,152 @@ def _fetch(url: str, timeout: float = 15.0) -> str | None:
         return None
     if "html" not in resp.headers.get("content-type", "").lower():
         return None
+    resp.encoding = resp.apparent_encoding if not resp.encoding else resp.encoding
     return resp.text
 
 
+def _sitemap_urls(url: str, depth: int = 0) -> list[str]:
+    """All page URLs of a sitemap (follows nested sitemap indexes, 2 levels)."""
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=20)
+    except Exception:
+        return []
+    if resp.status_code != 200:
+        return []
+    out: list[str] = []
+    for loc in re.findall(r"<loc>\s*([^<]+?)\s*</loc>", resp.text):
+        if loc.endswith(".xml"):
+            if depth < 2:
+                out += _sitemap_urls(loc, depth + 1)
+        else:
+            out.append(loc)
+    return out
+
+
+# --------------------------------------------------------------------------- parsing
 def _clean_text(soup: BeautifulSoup) -> str:
-    """Extract readable body text, dropping scripts/styles/nav/header/footer."""
-    for tag in soup(["script", "style", "noscript", "nav", "header", "footer", "svg"]):
+    """Readable body text, dropping scripts/styles/nav/header/footer."""
+    for tag in soup(["script", "style", "noscript", "nav", "header", "footer", "svg", "form"]):
         tag.decompose()
-    text = soup.get_text(separator="\n")
-    lines = [ln.strip() for ln in text.splitlines()]
-    return "\n".join(ln for ln in lines if ln)
+    lines = [ln.strip() for ln in soup.get_text(separator="\n").splitlines()]
+    return join_broken_lines([ln for ln in lines if ln])
+
+
+def join_broken_lines(lines: list[str]) -> str:
+    """
+    Re-join lines that HTML inline tags split mid-sentence ("Dòng máy chủ giá" + "rẻ đáp
+    ứng…"): a line starting with a lowercase letter continues the previous one, unless the
+    previous line ends a sentence. Price cards ("116.820" / "đ/tháng") are joined the same way.
+    """
+    out: list[str] = []
+    for line in (re.sub(r"[ \t\u00a0\u200b]{2,}", " ", ln).strip() for ln in lines):
+        if not line:
+            continue
+        if out and line[:1].islower() and not out[-1].endswith((".", "!", "?", ":")):
+            out[-1] = f"{out[-1]} {line}"
+        else:
+            out.append(line)
+    return "\n".join(out)
 
 
 def _extract_tables(soup: BeautifulSoup) -> list[list[list[str]]]:
-    """Return every HTML table verbatim as rows of cell text (nothing invented)."""
+    """Every HTML table verbatim as rows of cell text (nothing invented)."""
     tables: list[list[list[str]]] = []
     for table in soup.find_all("table"):
-        rows: list[list[str]] = []
+        rows = []
         for tr in table.find_all("tr"):
-            cells = [c.get_text(" ", strip=True) for c in tr.find_all(["th", "td"])]
-            if cells:
+            cells = [re.sub(r"\s{2,}", " ", c.get_text(" ", strip=True)) for c in tr.find_all(["th", "td"])]
+            if any(cells):
                 rows.append(cells)
         if rows:
             tables.append(rows)
     return tables
 
 
-def _path_tokens(url: str) -> list[str]:
-    """Hyphen/slash-delimited tokens of the URL path, lowercased."""
-    return [t for t in re.split(r"[/\-_.]+", urlparse(url).path.lower()) if t]
+def normalize_url(url: str) -> str:
+    return url.split("#")[0].split("?")[0].rstrip("/")
 
 
-def _phrase_in(tokens: list[str], phrase: str) -> bool:
-    """True if `phrase` (its own tokens) appears as a contiguous run in `tokens`."""
-    kw = phrase.split("-")
-    n = len(kw)
-    return any(tokens[i:i + n] == kw for i in range(len(tokens) - n + 1))
-
-
-def _url_is_relevant(url: str) -> bool:
-    """A product/pricing/service page: matches a keyword and no exclusion, on whole tokens."""
-    tokens = _path_tokens(url)
-    if not tokens:
-        return False  # bare domain / homepage is handled separately
-    if any(_phrase_in(tokens, ex) for ex in EXCLUDE_KEYWORDS):
+def url_is_candidate(url: str, provider: Provider) -> bool:
+    """Same domain, matches the provider's include regex, not a news/blog/account page."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
         return False
-    return any(_phrase_in(tokens, kw) for kw in LINK_KEYWORDS)
+    if parsed.netloc.lower().removeprefix("www.") != urlparse(provider.homepage).netloc.lower().removeprefix("www."):
+        return False
+    path = parsed.path.rstrip("/") or "/"
+    if EXCLUDE_RE.search(path + "/"):
+        return False
+    return re.search(provider.include, path) is not None
 
 
-def _discover_links(soup: BeautifulSoup, base_url: str, domain: str) -> list[str]:
-    """Same-domain product/pricing/service links (token-matched, news/blog excluded)."""
+def prefer_vietnamese(urls: list[str]) -> list[str]:
+    """Drop an /en/... URL when the same path without /en/ is also present."""
+    present = set(urls)
+    out = []
+    for u in urls:
+        p = urlparse(u)
+        if p.path.startswith("/en/"):
+            twin = f"{p.scheme}://{p.netloc}{p.path[3:]}"
+            if twin in present:
+                continue
+        out.append(u)
+    return out
+
+
+def strip_boilerplate(pages: list[Page], share: float = BOILERPLATE_SHARE) -> int:
+    """
+    Remove lines that repeat on at least `share` of a provider's pages (menus, footers,
+    cookie banners). Needs ≥ 3 pages to judge. Returns the number of distinct lines removed.
+    """
+    if len(pages) < 3:
+        return 0
+    counts = Counter(line for p in pages for line in set(p.text.splitlines()))
+    threshold = max(2, int(len(pages) * share))
+    noise = {line for line, n in counts.items() if n >= threshold and len(line) < 200}
+    for p in pages:
+        p.text = "\n".join(ln for ln in p.text.splitlines() if ln not in noise)
+    return len(noise)
+
+
+# --------------------------------------------------------------------------- crawling
+def discover(provider: Provider, home_soup: BeautifulSoup | None) -> list[str]:
+    """Candidate URLs from sitemap + homepage + seed pages, filtered and de-duplicated."""
     found: list[str] = []
+    in_sitemap: set[str] = set()
+    if provider.sitemap:
+        in_sitemap = {normalize_url(u) for u in _sitemap_urls(provider.sitemap)}
+        found += sorted(in_sitemap)
+    if home_soup is not None:
+        found += [urljoin(provider.homepage, a["href"]) for a in home_soup.find_all("a", href=True)]
+    for seed in provider.seeds:
+        html = _fetch(seed)
+        if html:
+            soup = BeautifulSoup(html, "html.parser")
+            found += [seed] + [urljoin(seed, a["href"]) for a in soup.find_all("a", href=True)]
     seen: set[str] = set()
-    for a in soup.find_all("a", href=True):
-        href = urljoin(base_url, a["href"]).split("#")[0].rstrip("/")
-        if not href or href in seen:
+    out = []
+    for url in map(normalize_url, found):
+        if provider.sitemap_only and url not in in_sitemap:
             continue
-        parsed = urlparse(href)
-        if parsed.netloc != domain or parsed.scheme not in ("http", "https"):
-            continue
-        if _url_is_relevant(href):
-            seen.add(href)
-            found.append(href)
-    return found
+        if url not in seen and url_is_candidate(url, provider):
+            seen.add(url)
+            out.append(url)
+    # Pricing pages first: they hold the facts presales needs most.
+    out = prefer_vietnamese(out)
+    return sorted(out, key=lambda u: (0 if re.search(r"bang-gia|pricing|price", u) else 1, u))
 
 
-def crawl_provider(name: str, homepage: str, max_pages: int, delay: float) -> list[Page]:
-    """Crawl a provider's homepage + up to `max_pages` product/pricing pages (depth 1)."""
-    domain = urlparse(homepage).netloc
-    rp = _robots_for(homepage)
-    print(f"\n▶ {name} ({domain})")
+def crawl_provider(provider: Provider, max_pages: int, delay: float) -> tuple[list[Page], dict]:
+    """Crawl one provider. Returns (kept pages, stats)."""
+    print(f"\n▶ {provider.name} ({urlparse(provider.homepage).netloc})")
+    stats = {"provider": provider.name, "candidates": 0, "fetched": 0, "kept": 0,
+             "js_only": 0, "robots_blocked": 0, "boilerplate_lines": 0, "skipped": ""}
+    rp, ai_reserved = _robots_for(provider.homepage)
+    if ai_reserved:
+        stats["skipped"] = "robots.txt Content-Signal reserves AI use"
+        print("    ⚠ skipped: robots.txt Content-Signal reserves AI use")
+        return [], stats
 
     def allowed(url: str) -> bool:
         try:
@@ -198,159 +301,180 @@ def crawl_provider(name: str, homepage: str, max_pages: int, delay: float) -> li
             return True
 
     pages: list[Page] = []
-    visited: set[str] = set()
+    home_html = _fetch(provider.homepage) if allowed(provider.homepage) else None
+    home_soup = BeautifulSoup(home_html, "html.parser") if home_html else None
+    queue = discover(provider, home_soup)
+    stats["candidates"] = len(queue)
+    print(f"    {len(queue)} candidate page(s)")
 
-    # 1) homepage
-    queue: list[str] = [homepage.rstrip("/")]
-    home_html = _fetch(homepage) if allowed(homepage) else None
-    if home_html:
-        soup = BeautifulSoup(home_html, "html.parser")
-        pages.append(Page(name, homepage, (soup.title.string or "").strip() if soup.title else "",
-                          datetime.now(UTC).isoformat(), _clean_text(soup), _extract_tables(soup)))
-        visited.add(homepage.rstrip("/"))
-        queue = _discover_links(soup, homepage, domain)
-        print(f"    ✓ homepage · discovered {len(queue)} candidate page(s)")
-
-    # 2) discovered product/pricing pages (depth 1)
     for url in queue:
-        if len([p for p in pages if p.url != homepage]) >= max_pages:
+        if len(pages) >= max_pages:
             break
-        if url in visited:
-            continue
-        visited.add(url)
         if not allowed(url):
-            print(f"    ⚠ robots.txt disallows {url} — skipped")
+            stats["robots_blocked"] += 1
             continue
         time.sleep(delay)
         html = _fetch(url)
         if not html:
             continue
+        stats["fetched"] += 1
         soup = BeautifulSoup(html, "html.parser")
+        title = (soup.title.string or "").strip() if soup.title and soup.title.string else ""
+        tables = _extract_tables(soup)
         text = _clean_text(soup)
-        if len(text) < 120:  # near-empty / JS-only page — nothing correct to keep
+        if len(text) < MIN_PAGE_CHARS and not tables:
+            stats["js_only"] += 1
             continue
-        pages.append(Page(name, url, (soup.title.string or "").strip() if soup.title else "",
-                          datetime.now(UTC).isoformat(), text, _extract_tables(soup)))
-        print(f"    ✓ {url}  ({len(text)} chars, {len(pages[-1].tables)} table(s))")
+        pages.append(Page(provider.name, url, title, datetime.now(UTC).isoformat(), text, tables))
 
-    print(f"  → {len(pages)} page(s) kept for {name}")
-    return pages
+    stats["boilerplate_lines"] = strip_boilerplate(pages)
+    pages = [p for p in pages if len(p.text) >= MIN_PAGE_CHARS or p.tables]
+    stats["kept"] = len(pages)
+    for p in pages:
+        print(f"    ✓ {p.url}  ({len(p.text)} chars, {len(p.tables)} table(s))")
+    if stats["js_only"] and not pages:
+        stats["skipped"] = "client-side rendered (needs a headless browser)"
+    print(f"  → kept {len(pages)} page(s)  [{stats}]")
+    return pages, stats
 
 
 def write_outputs(all_pages: dict[str, list[Page]], out_dir: Path) -> None:
-    """Write per-provider JSON and a combined summary CSV."""
+    """Per-provider JSON and a combined summary CSV."""
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, pages in all_pages.items():
         (out_dir / f"{name}.json").write_text(
-            json.dumps([asdict(p) for p in pages], ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-    summary = out_dir / "summary.csv"
-    with summary.open("w", newline="", encoding="utf-8") as f:
+            json.dumps([asdict(p) for p in pages], ensure_ascii=False, indent=2), encoding="utf-8")
+    with (out_dir / "summary.csv").open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["provider", "url", "title", "num_tables", "text_length", "fetched_at"])
         for pages in all_pages.values():
             for p in pages:
                 writer.writerow([p.provider, p.url, p.title, len(p.tables), len(p.text), p.fetched_at])
-    total = sum(len(p) for p in all_pages.values())
-    print(f"\n✅ Wrote {total} page(s) to {out_dir}/  (per-provider JSON + summary.csv)")
-
-
-def ingest_to_rag(all_pages: dict[str, list[Page]], chunk_size: int, overlap: int) -> None:
-    """Chunk + embed page text and insert into cloud_documents (category 'Competitor')."""
-    # Imported lazily so file-only crawls don't require .env / the embedding model.
-    from app.db.supabase_client import supabase
-    from app.tools.embedding_tool import embed_text
-    from scripts.text_chunking import chunk_text
-
-    inserted = 0
-    for name, pages in all_pages.items():
-        for p in pages:
-            chunks = chunk_text(p.text, chunk_size=chunk_size, overlap=overlap)
-            for idx, chunk in enumerate(chunks):
-                supabase.table("cloud_documents").insert({
-                    "service_name": f"{name} (competitor)",
-                    "category": "Competitor",
-                    "content": chunk,
-                    "embedding": embed_text(chunk),
-                    "metadata": {
-                        "source": p.url,
-                        "type": "competitor_crawl",
-                        "provider": name,
-                        "title": p.title,
-                        "chunk_index": idx,
-                        "total_chunks": len(chunks),
-                    },
-                }).execute()
-                inserted += 1
-    print(f"✅ Ingested {inserted} chunk(s) into cloud_documents (category 'Competitor').")
+    print(f"\n✅ Wrote {sum(len(p) for p in all_pages.values())} page(s) to {out_dir}/")
 
 
 def load_from_files(providers: list[str], out_dir: Path) -> dict[str, list[Page]]:
-    """
-    Load previously crawled pages from <out_dir>/<provider>.json, dropping news/blog
-    pages (per EXCLUDE_KEYWORDS) and JS-empty shells (< 120 chars, e.g. "Loading...").
-    Lets you ingest the good pages without re-crawling.
-    """
+    """Reload saved pages (re-applying the current URL filters) without re-crawling."""
     all_pages: dict[str, list[Page]] = {}
-    total_dropped = 0
     for name in providers:
         fp = out_dir / f"{name}.json"
-        if not fp.exists():
-            print(f"  ⚠ {fp} not found — skipped")
-            all_pages[name] = []
-            continue
-        records = json.loads(fp.read_text(encoding="utf-8"))
-        kept: list[Page] = []
-        for rec in records:
-            tokens = _path_tokens(rec["url"])
-            if tokens and any(_phrase_in(tokens, ex) for ex in EXCLUDE_KEYWORDS):
-                total_dropped += 1
-                continue
-            if len((rec.get("text") or "").strip()) < 120:  # JS-empty shell
-                total_dropped += 1
-                continue
-            kept.append(Page(
-                provider=rec["provider"], url=rec["url"], title=rec.get("title", ""),
-                fetched_at=rec.get("fetched_at", ""), text=rec.get("text", ""),
-                tables=rec.get("tables", []),
-            ))
+        records = json.loads(fp.read_text(encoding="utf-8")) if fp.exists() else []
+        pages = [Page(**rec) for rec in records]
+        for page in pages:  # re-apply cleaning that may postdate the saved crawl
+            page.text = join_broken_lines(page.text.splitlines())
+            page.tables = [[[re.sub(r"\s{2,}", " ", c).strip() for c in row] for row in t] for t in page.tables]
+        kept = [p for p in pages
+                if (url_is_candidate(p.url, PROVIDERS[name]) or normalize_url(p.url) ==
+                    normalize_url(PROVIDERS[name].homepage))
+                and (len(p.text) >= MIN_PAGE_CHARS or p.tables)]
         all_pages[name] = kept
-        print(f"  {name}: kept {len(kept)}, dropped {len(records) - len(kept)}")
-    print(f"  → total dropped (news/empty): {total_dropped}")
+        print(f"  {name}: kept {len(kept)} of {len(pages)}")
     return all_pages
 
 
+# --------------------------------------------------------------------------- ingestion
+def page_service_name(page: Page) -> str:
+    """'<provider> - <product>' from the page title (before the first separator)."""
+    head = re.split(r"\s[|–—-]\s", page.title or "")[0].strip() or urlparse(page.url).path.strip("/")
+    return f"{page.provider} - {head}"[:100]
+
+
+def table_chunks(table: list[list[str]], heading: str, rows_per_chunk: int = 12) -> list[str]:
+    """Render a table as text chunks of `rows_per_chunk` rows, each repeating the header row."""
+    if not table:
+        return []
+    header, body = table[0], table[1:] or []
+    if not body:
+        return [f"{heading}\n" + " | ".join(header)]
+    out = []
+    for i in range(0, len(body), rows_per_chunk):
+        lines = [" | ".join(header), " | ".join("---" for _ in header)]
+        lines += [" | ".join(row) for row in body[i:i + rows_per_chunk]]
+        out.append(f"{heading}\n" + "\n".join(lines))
+    return out
+
+
+def page_chunks(page: Page, chunk_size: int, overlap: int) -> list[str]:
+    """Text chunks (prefixed with provider + title for retrieval) plus table chunks."""
+    from scripts.text_chunking import chunk_text
+
+    heading = f"{page_service_name(page)} ({page.url})"
+    chunks = [f"{heading}\n{c}" for c in chunk_text(page.text, chunk_size=chunk_size, overlap=overlap)]
+    for t_idx, table in enumerate(page.tables):
+        chunks += table_chunks(table, f"{heading} — bảng {t_idx + 1}")
+    return chunks
+
+
+def ingest_to_rag(all_pages: dict[str, list[Page]], chunk_size: int, overlap: int) -> None:
+    """Replace each provider's previous crawl rows in cloud_documents with this crawl."""
+    from app.db.supabase_client import supabase
+    from app.tools.embedding_tool import embed_text
+
+    for name, pages in all_pages.items():
+        if not pages:
+            print(f"  {name}: nothing to ingest")
+            continue
+        cfg = PROVIDERS[name]
+        category = "Product" if cfg.role == "own" else "Competitor"
+        deleted = (supabase.table("cloud_documents").delete()
+                   .eq("metadata->>type", "competitor_crawl").eq("metadata->>provider", name)
+                   .execute().data or [])
+        rows = []
+        for page in pages:
+            kind = "pricing" if re.search(r"bang-gia|pricing|price", page.url) else "product"
+            for idx, chunk in enumerate(page_chunks(page, chunk_size, overlap)):
+                rows.append({
+                    "service_name": page_service_name(page),
+                    "category": category,
+                    "content": chunk,
+                    "embedding": embed_text(chunk),
+                    "metadata": {
+                        "source": page.url, "type": "competitor_crawl", "provider": name,
+                        "role": cfg.role, "page_kind": kind, "title": page.title,
+                        "fetched_at": page.fetched_at, "chunk_index": idx,
+                    },
+                })
+        for i in range(0, len(rows), 100):
+            supabase.table("cloud_documents").insert(rows[i:i + 100]).execute()
+        print(f"  {name}: replaced {len(deleted)} old row(s) with {len(rows)} chunk(s) "
+              f"(category {category!r})")
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Crawl public data from Vietnamese cloud competitors.")
+    parser = argparse.ArgumentParser(description="Crawl public data from Vietnamese cloud providers.")
     parser.add_argument("--providers", nargs="+", choices=sorted(PROVIDERS),
-                        help=f"Subset to crawl (default: all — {', '.join(sorted(PROVIDERS))}).")
-    parser.add_argument("--max-pages", type=int, default=8, help="Max product/pricing pages per provider (default 8).")
-    parser.add_argument("--delay", type=float, default=1.5, help="Seconds to wait between requests (default 1.5).")
-    parser.add_argument("--out", default="data/competitors", help="Output directory (default data/competitors).")
-    parser.add_argument("--ingest", action="store_true", help="Also insert page text into cloud_documents (RAG).")
+                        help=f"Default: all competitors ({', '.join(DEFAULT_PROVIDERS)}); "
+                             "'cmc' (own site) only when named.")
+    parser.add_argument("--max-pages", type=int, default=60, help="Max pages per provider (default 60).")
+    parser.add_argument("--delay", type=float, default=1.0, help="Seconds between requests (default 1.0).")
+    parser.add_argument("--out", default="data/competitors")
+    parser.add_argument("--ingest", action="store_true", help="Insert into cloud_documents (RAG).")
+    parser.add_argument("--from-files", action="store_true", help="Skip crawling; use saved JSON files.")
+    parser.add_argument("--list", action="store_true", help="Only print the candidate URLs (no page fetches).")
     parser.add_argument("--chunk-size", type=int, default=1000)
     parser.add_argument("--overlap", type=int, default=150)
-    parser.add_argument("--from-files", action="store_true",
-                        help="Skip crawling; load & filter saved data/competitors/*.json (drops news/empty), then --ingest.")
     args = parser.parse_args()
+    targets = args.providers or DEFAULT_PROVIDERS
 
-    targets = args.providers or sorted(PROVIDERS)
+    if args.list:
+        for name in targets:
+            cfg = PROVIDERS[name]
+            html = _fetch(cfg.homepage)
+            urls = discover(cfg, BeautifulSoup(html, "html.parser") if html else None)
+            print(f"{name}: {len(urls)} candidate(s)")
+            for u in urls:
+                print("   ", u)
+        return
 
     if args.from_files:
         all_pages = load_from_files(targets, Path(args.out))
-        if args.ingest:
-            ingest_to_rag(all_pages, args.chunk_size, args.overlap)
-        else:
-            kept = sum(len(p) for p in all_pages.values())
-            print(f"\nLoaded {kept} page(s) from files. Add --ingest to insert into cloud_documents.")
-        return
-
-    all_pages: dict[str, list[Page]] = {}
-    for name in targets:
-        all_pages[name] = crawl_provider(name, PROVIDERS[name], args.max_pages, args.delay)
-
-    write_outputs(all_pages, Path(args.out))
+    else:
+        all_pages, report = {}, []
+        for name in targets:
+            all_pages[name], stats = crawl_provider(PROVIDERS[name], args.max_pages, args.delay)
+            report.append(stats)
+        write_outputs(all_pages, Path(args.out))
+        (Path(args.out) / "crawl_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     if args.ingest:
         ingest_to_rag(all_pages, args.chunk_size, args.overlap)
 

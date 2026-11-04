@@ -41,7 +41,7 @@ _judge = None
 def _get_judge():
     global _judge
     if _judge is None:
-        _judge = get_chat_llm(temperature=0)
+        _judge = get_chat_llm(temperature=0, role="judge")
     return _judge
 
 

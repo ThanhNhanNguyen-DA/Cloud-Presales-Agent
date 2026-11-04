@@ -44,6 +44,7 @@ from app.graph.builder import build_graph
 from app.observability import current_metrics, setup_logging, start_request
 from app.tools.memory_tools import list_feedback, review_feedback, store_feedback
 from app.tools.embedding_tool import get_embedding_model
+from app.tools.reranker import get_reranker, rerank_enabled
 from app.tools.conversation_tools import load_conversation_history, save_conversation_turn
 from app.evaluation.metrics import evaluate_answer_async
 
@@ -59,6 +60,8 @@ async def lifespan(_: FastAPI):
     if os.getenv("WARMUP_EMBEDDINGS", "true").strip().lower() not in {"0", "false", "no"}:
         # Load the embedding model now (~15 s) instead of on the first user request.
         await asyncio.to_thread(get_embedding_model)
+        if rerank_enabled():
+            await asyncio.to_thread(get_reranker)
     yield
 
 

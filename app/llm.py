@@ -32,6 +32,42 @@ from app.observability import current_metrics
 
 logger = logging.getLogger(__name__)
 
+# Providers reachable through an OpenAI-compatible endpoint (via langchain-openai).
+# A model is written "provider:model"; a bare name means Groq (backwards compatible).
+OPENAI_COMPATIBLE_PROVIDERS = {
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai/", "GEMINI_API_KEY"),
+    "hf": ("https://router.huggingface.co/v1", "HUGGINGFACEHUB_API_TOKEN"),
+}
+PROVIDERS = ("groq", *OPENAI_COMPATIBLE_PROVIDERS)
+
+
+def parse_model_spec(spec: str) -> tuple[str, str]:
+    """'gemini:gemini-3.5-flash-lite' -> ('gemini', ...); 'openai/gpt-oss-120b' -> ('groq', ...)."""
+    provider, sep, model = spec.partition(":")
+    if sep and provider in PROVIDERS:
+        return provider, model
+    return "groq", spec
+
+
+def _build_chat_model(spec: str, *, groq_api_key: str | None, temperature: float, **kwargs: Any) -> Any:
+    """Instantiate the LangChain chat model for one spec. Raises KeyError if its API key is missing."""
+    import os
+
+    provider, model = parse_model_spec(spec)
+    if provider == "groq":
+        return ChatGroq(model=model, api_key=groq_api_key, temperature=temperature, **kwargs)
+    from langchain_openai import ChatOpenAI
+
+    base_url, key_env = OPENAI_COMPATIBLE_PROVIDERS[provider]
+    api_key = os.getenv(key_env)
+    if not api_key:
+        raise KeyError(key_env)
+    if provider == "gemini":
+        # Gemini "thinks" by default; for routing / tool calls / grading that only adds latency
+        # (grader p50 13 s -> ~1 s). Override with model_kwargs if a role needs deep reasoning.
+        kwargs.setdefault("reasoning_effort", "low")
+    return ChatOpenAI(model=model, api_key=api_key, base_url=base_url, temperature=temperature, **kwargs)
+
 try:  # Groq's typed rate-limit error, if the installed client exposes it.
     from groq import RateLimitError
     _RATE_LIMIT_TYPES: tuple = (RateLimitError,)
@@ -100,7 +136,11 @@ def _retry_after_seconds(exc: Exception, default: float) -> float:
 
 class FallbackChatLLM:
     """
-    A chat model that fans out across `models` (Groq) when one is rate-limited.
+    A chat model that fans out across `models` when one is rate-limited.
+
+    Each entry is "provider:model" (groq, gemini, hf) or a bare Groq model name. Entries
+    whose provider has no API key configured are skipped with a warning, as long as at
+    least one model remains.
 
     On each `.invoke()`, models are tried in order. For a given model the call is
     retried `retries_per_model` times with linear backoff (to ride out a transient
@@ -116,7 +156,7 @@ class FallbackChatLLM:
         self,
         models: Sequence[str],
         *,
-        api_key: str,
+        api_key: str | None = None,
         temperature: float = 0.0,
         retries_per_model: int = 1,
         backoff_seconds: float = 0.0,
@@ -149,16 +189,21 @@ class FallbackChatLLM:
         self._tools = _tools
 
         self._llms: list[Any] = []
+        usable: list[str] = []
         for name in self._models:
-            llm: Any = ChatGroq(
-                model=name,
-                api_key=api_key,
-                temperature=temperature,
-                **model_kwargs,
-            )
+            try:
+                llm: Any = _build_chat_model(name, groq_api_key=api_key, temperature=temperature,
+                                             **model_kwargs)
+            except KeyError as missing:
+                logger.warning("Skipping model %r: %s is not set.", name, missing)
+                continue
             if _tools is not None:
                 llm = llm.bind_tools(_tools)
             self._llms.append(llm)
+            usable.append(name)
+        if not self._llms:
+            raise ValueError(f"No usable model in {self._models}: API keys missing.")
+        self._models = usable
 
     def bind_tools(self, tools: Any, **kwargs: Any) -> FallbackChatLLM:
         """Return a new fallback model with `tools` bound to every underlying model."""
@@ -267,7 +312,7 @@ class FallbackChatLLM:
                 time.sleep(wait)
 
         raise RuntimeError(
-            "All Groq models are rate-limited after "
+            "All models are rate-limited after "
             f"{self._rate_limit_max_retries + 1} passes: " + ", ".join(self._models)
         ) from last_error
 
@@ -275,24 +320,26 @@ class FallbackChatLLM:
 def get_chat_llm(
     temperature: float = 0.0,
     models: Sequence[str] | None = None,
+    role: str | None = None,
     **kwargs: Any,
 ) -> FallbackChatLLM:
     """
-    Build the app's standard fallback-enabled Groq chat model.
+    Build the app's standard fallback-enabled chat model.
 
-    Uses the ordered `GROQ_MODELS` chain from config unless `models` is given.
+    The model chain is `models` if given, else the chain configured for `role`
+    (e.g. SUPERVISOR_MODELS, GRADER_MODELS — see app/config.models_for), else LLM_MODELS.
     Rate-limit wait-and-retry is tunable via env: GROQ_RATE_LIMIT_RETRIES (default 4),
     GROQ_RATE_LIMIT_WAIT_CAP seconds (default 30).
     """
     import os
 
-    from app.config import GROQ_API_KEY, GROQ_MODELS
+    from app.config import GROQ_API_KEY, models_for
 
     kwargs.setdefault("rate_limit_max_retries", int(os.getenv("GROQ_RATE_LIMIT_RETRIES", "4")))
     kwargs.setdefault("rate_limit_wait_cap", float(os.getenv("GROQ_RATE_LIMIT_WAIT_CAP", "30")))
 
     return FallbackChatLLM(
-        models or GROQ_MODELS,
+        models or models_for(role),
         api_key=GROQ_API_KEY,
         temperature=temperature,
         **kwargs,

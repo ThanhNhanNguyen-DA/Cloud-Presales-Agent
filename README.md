@@ -70,7 +70,27 @@ All calls go through one wrapper, [`app/llm.py`](app/llm.py): an ordered model c
 | `cloud_feedback_memory` | Episodic memory: query/response + `is_positive` + `user_correction` + embedding |
 | `cloud_conversation_history` | Multi-turn memory: one row per message (`session_id`, `role`, `content`, `route`) |
 
-Text is vectorised by **Qwen3-Embedding-0.6B**, truncated via Matryoshka to **512 dims** and L2-normalised; two RPC functions do cosine search. Documents are chunked **structure-aware** (DOCX by heading + tables, PDF per case study, recursive split for the rest), not blind fixed-length cuts.
+Text is vectorised by **Qwen3-Embedding-0.6B**, truncated via Matryoshka to **512 dims** and L2-normalised; two RPC functions do cosine search (HNSW index). Documents are chunked **structure-aware** (DOCX by heading + tables, PDF per case study, recursive split for the rest), not blind fixed-length cuts.
+
+### Retrieval pipeline
+
+`question → embed_query (Qwen "query" prompt) → vector search, top 15 → cross-encoder rerank (BAAI/bge-reranker-v2-m3, fp16) → keep score ≥ 0.1 → top 4 with sources`
+
+The LLM only chooses the query and an optional category/provider; counts and thresholds are fixed.
+`search_cloud_documents` searches **our** docs and excludes crawled competitor pages;
+`search_competitor_docs` (competitor agent) searches only those pages, per provider.
+Measured with `scripts/eval_retrieval.py` on 60 generated questions (`scripts/build_retrieval_eval.py`):
+
+| Retrieval | Hit@1 | Hit@3 | MRR@10 | ms/query |
+|---|---|---|---|---|
+| RPC through the old ivfflat index | 0.10 | 0.17 | 0.13 | 177 |
+| exact vector search | 0.68 | 0.90 | 0.81 | 44 |
+| + Qwen query prompt | 0.72 | 0.93 | 0.83 | 11 |
+| + bge-reranker-v2-m3 (top 15, fp16) | **0.87** | 0.93 | **0.91** | ~180 |
+| + mmarco-mMiniLMv2 (top 15, fp16) | 0.83 | **0.98** | 0.90 | ~45 |
+
+`sql/migrations/003_retrieval.sql` replaces the ivfflat indexes with HNSW (the 0.17 row above). Until it is
+run, the tools fall back to the old RPC signature and filter in Python.
 
 ---
 
@@ -120,7 +140,8 @@ test -f .env || cp .env.example .env                 # fill in GROQ_API_KEY, SUP
 # 3. Load RAG data (pick any)
 python -m scripts.ingest_documents                     # built-in sample docs (quick start)
 python -m scripts.ingest_files ./docs --category General   # your PDF/DOCX/TXT/MD
-python -m scripts.crawl_competitors --ingest           # crawl VN competitors → RAG store
+python -m scripts.crawl_competitors                    # crawl VN competitors' product/pricing pages → data/competitors/ (review)
+python -m scripts.crawl_competitors --from-files --ingest   # → cloud_documents, category "Competitor" (replaces the previous crawl)
 
 # 4. Run both services (Ctrl+C stops both)
 bash scripts/dev.sh
