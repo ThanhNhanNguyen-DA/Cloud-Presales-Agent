@@ -25,7 +25,7 @@ def test_grader_pass_when_numbers_match():
         "retry_count": 0,
     }
     with patch("app.graders.self_rag_grader.grader_llm", _mock_grader_returning("PASS")):
-        result = grounding_grader_node(state)
+        result = {**state, **grounding_grader_node(state)}  # node returns a partial update
 
     assert result["grading_passed"] is True
 
@@ -38,7 +38,7 @@ def test_grader_fail_when_numbers_mismatch():
         "retry_count": 1,  # Simulate having already retried once.
     }
     with patch("app.graders.self_rag_grader.grader_llm", _mock_grader_returning("FAIL")):
-        result = grounding_grader_node(state)
+        result = {**state, **grounding_grader_node(state)}  # node returns a partial update
 
     assert result["grading_passed"] is False
     assert "⚠️" in result["final_response"]
@@ -53,7 +53,7 @@ def test_grader_auto_pass_when_no_raw_output():
     }
     mock_llm = _mock_grader_returning("FAIL")  # Should never be consulted.
     with patch("app.graders.self_rag_grader.grader_llm", mock_llm):
-        result = grounding_grader_node(state)
+        result = {**state, **grounding_grader_node(state)}  # node returns a partial update
 
     assert result["grading_passed"] is True
     mock_llm.invoke.assert_not_called()
@@ -67,7 +67,7 @@ def test_grader_first_failure_requests_retry_without_warning():
         "retry_count": 0,
     }
     with patch("app.graders.self_rag_grader.grader_llm", _mock_grader_returning("FAIL")):
-        result = grounding_grader_node(state)
+        result = {**state, **grounding_grader_node(state)}  # node returns a partial update
 
     assert result["grading_passed"] is False
     assert result["retry_count"] == 1

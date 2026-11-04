@@ -2,7 +2,9 @@
 LangGraph State definition for the Cloud Presales Agent system.
 """
 
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
+
+Route = Literal["calculator", "document", "competitor", "general"]
 
 
 class GraphState(TypedDict):
@@ -23,14 +25,17 @@ class GraphState(TypedDict):
         final_response: The final answer after grading (Phase 8).
         grading_passed: Result of the Grounding Grader (Phase 8).
         retry_count: Number of grading retries performed, to bound the retry loop (Phase 8).
+        grader_feedback: What the Grounding Grader found wrong on a FAIL; passed to the agent
+            on the retry so it can correct itself (None when the answer passed).
     """
     messages: list[Any]
     session_id: str | None
     user_query: str
-    route: str | None
+    route: Route | None
     retrieved_experience: str | None
     raw_tool_output: str | None
     agent_response: str | None
     final_response: str | None
     grading_passed: bool | None
     retry_count: int | None
+    grader_feedback: str | None

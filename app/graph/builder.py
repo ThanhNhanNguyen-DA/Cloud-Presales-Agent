@@ -3,18 +3,19 @@ LangGraph builder: constructs the graph with supervisor and specialized agents.
 - Calculator agent (Phase 4): real calculator_agent_node
 - Document agent (Phase 5): real document_agent_node  
 - Competitor agent (Phase 6): real competitor_agent_node
-- General: placeholder general_node
+- General: general_node (direct answer, no tools)
 """
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, START, StateGraph
 from langchain_core.messages import HumanMessage, SystemMessage
+from app.agents.tool_agent import message_text
 from app.llm import get_chat_llm
 from app.graph.state import GraphState
 from app.graph.supervisor import supervisor_node
 from app.agents.calculator_agent import calculator_agent_node
 from app.agents.document_agent import document_agent_node
 from app.agents.competitor_agent import competitor_agent_node
-from app.graders.self_rag_grader import grounding_grader_node
+from app.graders.self_rag_grader import MAX_GRADING_ATTEMPTS, grounding_grader_node
 
 
 llm = get_chat_llm(temperature=0.3)
@@ -31,10 +32,10 @@ you can help with that and invite them to ask it directly (a specialist will han
 Do NOT invent technical facts, SLAs, prices, service names, or comparisons — those come only
 from the specialists and their tools.
 
-Format: 1-3 short sentences, in the SAME language as the user's question."""
+Answer in the SAME language as the user's question — concise but complete; a short paragraph is fine."""
 
 
-def general_node(state: GraphState) -> GraphState:
+def general_node(state: GraphState) -> dict:
     """
     General-purpose response node. Answers questions directly via the LLM.
     Used for general queries that don't require specialized agents.
@@ -47,9 +48,8 @@ def general_node(state: GraphState) -> GraphState:
         HumanMessage(content=state["user_query"]),
     ]
     response = llm.invoke(messages)
-    state["agent_response"] = response.content
-    state["final_response"] = response.content
-    return state
+    answer = message_text(response).strip()
+    return {"agent_response": answer, "final_response": answer}
 
 
 def route_decision(state: GraphState) -> str:
@@ -57,25 +57,29 @@ def route_decision(state: GraphState) -> str:
     return state["route"]
 
 
+SPECIALIST_ROUTES = ("calculator", "document", "competitor")
+
+
 def grading_decision(state: GraphState) -> str:
     """
     Decide what to do after the Grounding Grader (Phase 8).
 
-    Pure read-only routing: the actual `retry_count` increment happens inside
+    Pure read-only routing: `retry_count` / `grader_feedback` are set inside
     `grounding_grader_node`, since LangGraph does not reliably persist state
     mutations made inside a conditional-edge function.
 
     - PASS -> end.
-    - FAIL but retry budget remains (retry_count < 2 after the node bumped it)
-      -> retry (re-route from the supervisor once).
-    - FAIL and retry budget exhausted -> end (the node has already appended a
-      warning to `final_response`, so the user still gets a non-empty answer).
+    - FAIL with retry budget left -> re-run the SAME specialist (it receives the grader's
+      feedback). Routing and memory recall are not repeated: the question hasn't changed.
+    - FAIL with the budget used (or the grader could not verify) -> end; the node has
+      already appended a warning to `final_response`.
     """
     if state.get("grading_passed"):
         return "end"
-    if (state.get("retry_count") or 0) >= 2:
+    if (state.get("retry_count") or 0) >= MAX_GRADING_ATTEMPTS:
         return "end"
-    return "retry"
+    route = state.get("route")
+    return route if route in SPECIALIST_ROUTES else "end"
 
 
 def build_graph():
@@ -100,7 +104,7 @@ def build_graph():
     graph.add_node("general", general_node)
     graph.add_node("grader", grounding_grader_node)
 
-    graph.set_entry_point("supervisor")
+    graph.add_edge(START, "supervisor")
 
     graph.add_conditional_edges(
         "supervisor",
@@ -120,12 +124,14 @@ def build_graph():
     # General answers don't use a tool, so there's nothing to cross-check.
     graph.add_edge("general", END)
 
-    # Grader either ends, or re-routes once via the supervisor (bounded by retry_count).
+    # Grader either ends, or re-runs the same specialist once (bounded by retry_count).
     graph.add_conditional_edges(
         "grader",
         grading_decision,
         {
-            "retry": "supervisor",
+            "calculator": "calculator",
+            "document": "document",
+            "competitor": "competitor",
             "end": END,
         }
     )

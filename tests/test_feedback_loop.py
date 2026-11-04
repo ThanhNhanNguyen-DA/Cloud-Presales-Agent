@@ -116,7 +116,7 @@ def test_feedback_loop_with_mocking():
         assert result2["retrieved_experience"] is not None, "retrieved_experience should not be None"
         assert len(result2["retrieved_experience"]) > 0, "retrieved_experience should contain lesson"
         assert "Dedicated Storage" in result2["retrieved_experience"], "Should contain the correction"
-        print(f"✓ Round 2 - Correction was retrieved and injected into state")
+        print("✓ Round 2 - Correction was retrieved and injected into state")
         
         print("\n✅ Full feedback loop test passed!")
 

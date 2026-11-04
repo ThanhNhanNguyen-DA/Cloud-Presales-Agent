@@ -17,9 +17,13 @@ not chosen by the LLM. Both are best-effort — any DB error is logged and swall
 memory hiccup never breaks the answer.
 """
 
+import logging
+
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 from app.db.supabase_client import supabase
+
+logger = logging.getLogger(__name__)
 
 
 def load_conversation_history(session_id: str | None, max_turns: int = 5) -> list[BaseMessage]:
@@ -54,7 +58,7 @@ def load_conversation_history(session_id: str | None, max_turns: int = 5) -> lis
                 messages.append(AIMessage(content=row["content"]))
         return messages
     except Exception as e:
-        print(f"Error loading conversation history: {str(e)}")
+        logger.warning("Could not load conversation history: %s", e)
         return []
 
 
@@ -83,4 +87,4 @@ def save_conversation_turn(
             "route": route,
         }).execute()
     except Exception as e:
-        print(f"Error saving conversation turn: {str(e)}")
+        logger.warning("Could not save conversation turn: %s", e)

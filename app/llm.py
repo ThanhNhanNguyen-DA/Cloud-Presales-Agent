@@ -1,9 +1,9 @@
 """
-Groq (Llama 3.3 70B) chat model with automatic fallback on rate-limit exhaustion.
+Groq chat model (GPT-OSS 120B primary) with automatic fallback on rate-limit exhaustion.
 
 `ChatGroq` raises a 429 rate-limit error when a model's per-minute / per-day quota
 runs out. This wrapper holds an *ordered* list of Groq models and, on every call,
-tries them in turn: the primary model (Llama 3.3 70B) normally answers, but when it
+tries them in turn: the primary model (GPT-OSS 120B) normally answers, but when it
 is rate-limited the call transparently falls through to the next model in the list.
 
 By default it **fails fast**: the Groq client's own retry loop is disabled
@@ -20,12 +20,17 @@ vectorisation stays on the local Qwen model (see app/tools/embedding_tool.py).
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from collections.abc import Sequence
 from typing import Any
 
 from langchain_groq import ChatGroq
+
+from app.observability import current_metrics
+
+logger = logging.getLogger(__name__)
 
 try:  # Groq's typed rate-limit error, if the installed client exposes it.
     from groq import RateLimitError
@@ -38,6 +43,27 @@ _RATE_LIMIT_MARKERS = (
     "429", "rate limit", "rate-limit", "ratelimit",
     "too many requests", "quota", "rate_limit_exceeded",
 )
+
+
+_MODEL_UNAVAILABLE_MARKERS = ("model_not_found", "model_decommissioned", "does not exist", "decommissioned")
+
+
+def _is_model_unavailable_error(exc: Exception) -> bool:
+    """True if Groq says the model is gone (404 / decommissioned) — retrying it is pointless."""
+    if getattr(exc, "status_code", None) == 404:
+        return True
+    text = str(exc).lower()
+    return any(marker in text for marker in _MODEL_UNAVAILABLE_MARKERS)
+
+
+def _is_bad_generation_error(exc: Exception) -> bool:
+    """
+    True for Groq's 400 `tool_use_failed`: the model emitted a malformed tool call (wrong tool
+    name, arguments that don't match the schema). That is a one-off bad sample, not a bug in
+    our request, so it is worth retrying — and then trying another model.
+    """
+    text = str(exc).lower()
+    return "tool_use_failed" in text or "tool call validation failed" in text
 
 
 def _is_rate_limit_error(exc: Exception) -> bool:
@@ -134,7 +160,7 @@ class FallbackChatLLM:
                 llm = llm.bind_tools(_tools)
             self._llms.append(llm)
 
-    def bind_tools(self, tools: Any, **kwargs: Any) -> "FallbackChatLLM":
+    def bind_tools(self, tools: Any, **kwargs: Any) -> FallbackChatLLM:
         """Return a new fallback model with `tools` bound to every underlying model."""
         return FallbackChatLLM(
             self._models,
@@ -148,6 +174,32 @@ class FallbackChatLLM:
             **self._model_kwargs,
         )
 
+    @staticmethod
+    def _timed_invoke(llm: Any, model_name: str, input: Any, config: Any, kwargs: dict) -> Any:
+        """One model call; logs latency + token usage and adds them to the request metrics."""
+        started = time.perf_counter()
+        response = llm.invoke(input, config=config, **kwargs)
+        seconds = time.perf_counter() - started
+        usage = getattr(response, "usage_metadata", None)
+        usage = usage if isinstance(usage, dict) else {}
+        tokens_in, tokens_out = int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0)
+        logger.info("%s ok %.2fs tokens=%d/%d", model_name, seconds, tokens_in, tokens_out)
+        metrics = current_metrics()
+        if metrics is not None:
+            metrics.add_llm_call(seconds, tokens_in, tokens_out)
+        return response
+
+    @classmethod
+    def _invoke_with_regeneration(cls, llm: Any, model_name: str, input: Any, config: Any, kwargs: dict) -> Any:
+        """Call the model; on a malformed tool call (400 tool_use_failed) sample once more."""
+        try:
+            return cls._timed_invoke(llm, model_name, input, config, kwargs)
+        except Exception as exc:  # noqa: BLE001
+            if not _is_bad_generation_error(exc):
+                raise
+            logger.warning(f"'{model_name}' returned an invalid tool call; regenerating once…")
+            return cls._timed_invoke(llm, model_name, input, config, kwargs)
+
     def invoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
         """
         Try each model in order; fall through to the next on a rate-limit error. If every
@@ -155,37 +207,61 @@ class FallbackChatLLM:
         chain, up to `rate_limit_max_retries` times, before raising.
         """
         last_error: Exception | None = None
+        # Models skipped for the rest of this call, with the reason: removed from Groq, or
+        # produced an invalid tool call twice in a row.
+        unavailable: dict[int, str] = {}
 
         for outer in range(self._rate_limit_max_retries + 1):
             for index, llm in enumerate(self._llms):
                 model_name = self._models[index]
+                if index in unavailable:
+                    continue
                 for attempt in range(self._retries_per_model):
                     try:
-                        return llm.invoke(input, config=config, **kwargs)
+                        return self._invoke_with_regeneration(llm, model_name, input, config, kwargs)
                     except Exception as exc:  # noqa: BLE001 - non-rate-limit errors re-raised below
+                        if _is_model_unavailable_error(exc):
+                            unavailable[index] = "not available on Groq"
+                            last_error = exc
+                            logger.warning(f"model '{model_name}' is not available on Groq; "
+                                  "update GROQ_MODELS. Trying the next model.")
+                            break
+                        if _is_bad_generation_error(exc):
+                            unavailable[index] = "returned invalid tool calls"
+                            last_error = exc
+                            logger.warning(f"'{model_name}' returned an invalid tool call twice; "
+                                  "trying the next model.")
+                            break
                         if not _is_rate_limit_error(exc):
                             raise
                         last_error = exc
                         is_last_attempt = attempt == self._retries_per_model - 1
                         if not is_last_attempt:
                             time.sleep(self._backoff_seconds * (attempt + 1))
-                            print(
-                                f"[llm] '{model_name}' rate-limited; "
+                            logger.warning(
+                                f"'{model_name}' rate-limited; "
                                 f"retry {attempt + 2}/{self._retries_per_model}…"
                             )
                         elif index < len(self._llms) - 1:
-                            print(
-                                f"[llm] '{model_name}' rate-limited; "
+                            logger.warning(
+                                f"'{model_name}' rate-limited; "
                                 f"switching to '{self._models[index + 1]}'."
                             )
+
+            if len(unavailable) == len(self._llms):
+                details = ", ".join(f"{self._models[i]} ({why})" for i, why in unavailable.items())
+                raise RuntimeError(
+                    f"No configured Groq model could answer: {details}. If models were removed, "
+                    "set GROQ_MODELS in .env (see https://console.groq.com/docs/models)."
+                ) from last_error
 
             # Every model was rate-limited this pass. Wait it out and retry the chain.
             if outer < self._rate_limit_max_retries:
                 default_wait = min(2.0 * (2 ** outer), self._rate_limit_wait_cap)
                 wait = min(_retry_after_seconds(last_error, default_wait) + 0.5,
                            self._rate_limit_wait_cap)
-                print(
-                    f"[llm] all models rate-limited; waiting {wait:.1f}s then retrying "
+                logger.warning(
+                    f"all models rate-limited; waiting {wait:.1f}s then retrying "
                     f"(pass {outer + 2}/{self._rate_limit_max_retries + 1})…"
                 )
                 time.sleep(wait)

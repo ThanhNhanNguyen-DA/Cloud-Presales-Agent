@@ -1,11 +1,60 @@
 """
 Core presales calculation tools for Cloud Presales Agent.
 These are pure calculation functions decorated with @tool for LangChain integration.
-No LangGraph dependencies in this phase.
+
+These numbers go straight into customer quotes, so the tools never guess silently:
+- option names (storage class, runtime) are matched case-insensitively, and an unknown
+  value returns an `error` instead of quietly falling back to a default;
+- inputs are validated (positive / finite), and invalid ones return an `error` the agent
+  can relay to the user ("please give the bandwidth") instead of raising;
+- units follow the networking/billing convention: 1 GB = 10^9 bytes, 1 Mbps = 10^6 bit/s.
 """
 
-from langchain_core.tools import tool
 import math
+
+from langchain_core.tools import tool
+
+# USD per GB-month by storage tier (keys are canonical names).
+STORAGE_PRICING_USD_PER_GB = {"Standard": 0.023, "Cool": 0.012, "Archive": 0.004}
+# Share of the nominal bandwidth a long transfer achieves in practice (TCP/protocol overhead).
+NETWORK_EFFICIENCY = 0.8
+
+VM_SPECS = {
+    "java": {"cpu_per_ccu": 0.008, "ram_mb_per_ccu": 16, "base_ram_gb": 2.0},
+    "nodejs": {"cpu_per_ccu": 0.005, "ram_mb_per_ccu": 8, "base_ram_gb": 1.0},
+    "php": {"cpu_per_ccu": 0.006, "ram_mb_per_ccu": 10, "base_ram_gb": 1.0},
+    "python": {"cpu_per_ccu": 0.007, "ram_mb_per_ccu": 12, "base_ram_gb": 1.5},
+}
+# Common spellings the LLM may pass for a runtime.
+RUNTIME_ALIASES = {"node": "nodejs", "node.js": "nodejs", "js": "nodejs", "py": "python"}
+
+MAX_PROJECTION_MONTHS = 120
+
+
+def _error(message: str) -> dict:
+    """Uniform error payload: the agent shows it / asks the user instead of inventing a number."""
+    return {"error": message}
+
+
+def _check_number(name: str, value: float, *, minimum: float = 0.0, strict: bool = True) -> str | None:
+    """Return an error message if `value` is not a finite number above (or at) `minimum`."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return f"{name} must be a finite number (got {value!r})."
+    if strict and value <= minimum:
+        return f"{name} must be greater than {minimum:g} (got {value:g})."
+    if not strict and value < minimum:
+        return f"{name} must be at least {minimum:g} (got {value:g})."
+    return None
+
+
+def _match_option(value: str, options, aliases: dict | None = None) -> str | None:
+    """Case/whitespace-insensitive lookup of `value` among `options`; returns the canonical key."""
+    key = (value or "").strip().lower()
+    key = (aliases or {}).get(key, key)
+    for option in options:
+        if option.lower() == key:
+            return option
+    return None
 
 
 @tool
@@ -16,31 +65,40 @@ def calculate_backup_and_cost(
 ) -> dict:
     """
     Calculates the estimated backup duration to the Cloud and the monthly storage cost.
-    
+
     Args:
-        data_volume_gb: Data volume to be backed up (GB).
-        bandwidth_mbps: Network bandwidth (Mbps).
-        storage_class: Storage tier ('Standard', 'Cool', 'Archive').
-    
+        data_volume_gb: Data volume to be backed up (GB, must be > 0).
+        bandwidth_mbps: Network bandwidth (Mbps, must be > 0).
+        storage_class: Storage tier: 'Standard', 'Cool' or 'Archive' (case-insensitive).
+
     Returns:
-        Dictionary with backup duration (hours/minutes) and monthly cost estimate.
+        Dictionary with backup duration (hours/minutes) and monthly cost estimate,
+        or {"error": ...} if an input is invalid.
     """
-    pricing = {"Standard": 0.023, "Cool": 0.012, "Archive": 0.004}
-    price_per_gb = pricing.get(storage_class, 0.023)
-    monthly_cost = data_volume_gb * price_per_gb
+    for name, value in (("data_volume_gb", data_volume_gb), ("bandwidth_mbps", bandwidth_mbps)):
+        problem = _check_number(name, value)
+        if problem:
+            return _error(problem)
 
-    total_bits = data_volume_gb * 8 * 1024 * 1024 * 1024
-    effective_bandwidth_bps = bandwidth_mbps * 1024 * 1024 * 0.8
+    tier = _match_option(storage_class, STORAGE_PRICING_USD_PER_GB)
+    if tier is None:
+        valid = ", ".join(STORAGE_PRICING_USD_PER_GB)
+        return _error(f"Unknown storage_class {storage_class!r}. Valid options: {valid}.")
 
-    duration_seconds = total_bits / effective_bandwidth_bps
-    duration_hours = duration_seconds / 3600
+    monthly_cost = data_volume_gb * STORAGE_PRICING_USD_PER_GB[tier]
+
+    total_bits = data_volume_gb * 8 * 10**9
+    effective_bandwidth_bps = bandwidth_mbps * 10**6 * NETWORK_EFFICIENCY
+    duration_hours = total_bits / effective_bandwidth_bps / 3600
 
     return {
         "calculated_monthly_cost_usd": round(monthly_cost, 2),
+        "price_per_gb_month_usd": STORAGE_PRICING_USD_PER_GB[tier],
         "estimated_hours": round(duration_hours, 2),
         "estimated_minutes": round(duration_hours * 60, 1),
-        "storage_class_used": storage_class,
-        "network_efficiency": "80%"
+        "storage_class_used": tier,
+        "network_efficiency": f"{NETWORK_EFFICIENCY:.0%}",
+        "unit_convention": "1 GB = 10^9 bytes, 1 Mbps = 10^6 bit/s",
     }
 
 
@@ -51,23 +109,24 @@ def size_web_app_vm(
 ) -> dict:
     """
     Recommends the optimal VM configuration (vCPU, RAM) based on the number of concurrent users (CCU).
-    
+
     Args:
-        ccu: Number of concurrent users accessing the system at once.
-        app_type: Application runtime type ('java', 'nodejs', 'php', 'python').
-    
+        ccu: Number of concurrent users accessing the system at once (>= 0).
+        app_type: Application runtime: 'java', 'nodejs', 'php' or 'python' (case-insensitive).
+
     Returns:
-        Dictionary with recommended vCPU and RAM configuration.
+        Dictionary with recommended vCPU and RAM configuration, or {"error": ...}.
     """
-    specs = {
-        "java": {"cpu_per_ccu": 0.008, "ram_mb_per_ccu": 16, "base_ram_gb": 2.0},
-        "nodejs": {"cpu_per_ccu": 0.005, "ram_mb_per_ccu": 8, "base_ram_gb": 1.0},
-        "php": {"cpu_per_ccu": 0.006, "ram_mb_per_ccu": 10, "base_ram_gb": 1.0},
-        "python": {"cpu_per_ccu": 0.007, "ram_mb_per_ccu": 12, "base_ram_gb": 1.5}
-    }
+    problem = _check_number("ccu", ccu, strict=False)
+    if problem:
+        return _error(problem)
 
-    config = specs.get(app_type.lower(), specs["java"])
+    runtime = _match_option(app_type, VM_SPECS, RUNTIME_ALIASES)
+    if runtime is None:
+        valid = ", ".join(VM_SPECS)
+        return _error(f"Unknown app_type {app_type!r}. Valid options: {valid}.")
 
+    config = VM_SPECS[runtime]
     raw_cpu = ccu * config["cpu_per_ccu"]
     raw_ram = (ccu * config["ram_mb_per_ccu"]) / 1024 + config["base_ram_gb"]
 
@@ -75,11 +134,11 @@ def size_web_app_vm(
     recommended_ram_gb = max(4, int(math.ceil(raw_ram / 4) * 4))
 
     return {
-        "app_type": app_type,
+        "app_type": runtime,
         "target_ccu": ccu,
         "recommended_vcpu": recommended_vcpu,
         "recommended_ram_gb": recommended_ram_gb,
-        "sizing_note": f"Recommendation based on the runtime load of the {app_type} engine/runtime."
+        "sizing_note": f"Recommendation based on the runtime load of the {runtime} engine/runtime."
     }
 
 
@@ -93,16 +152,28 @@ def size_database_storage(
     """
     Estimates the projected database size after N months of growth and recommends a suitable
     storage tier based on the required IOPS.
-    
+
     Args:
-        current_size_gb: Current data size (GB).
-        monthly_growth_rate_percent: Monthly growth rate as a percentage (e.g. 15 means 15%/month).
-        months: Number of months to project.
-        required_iops: Required IOPS for the application's read/write workload.
-    
+        current_size_gb: Current data size (GB, > 0).
+        monthly_growth_rate_percent: Monthly growth rate as a percentage (e.g. 15 means 15%/month; 0 or more).
+        months: Number of months to project (0-120).
+        required_iops: Required IOPS for the application's read/write workload (>= 0).
+
     Returns:
-        Dictionary with projected size and storage tier recommendation.
+        Dictionary with projected size and storage tier recommendation, or {"error": ...}.
     """
+    checks = (
+        _check_number("current_size_gb", current_size_gb),
+        _check_number("monthly_growth_rate_percent", monthly_growth_rate_percent, strict=False),
+        _check_number("months", months, strict=False),
+        _check_number("required_iops", required_iops, strict=False),
+    )
+    problem = next((c for c in checks if c), None)
+    if problem:
+        return _error(problem)
+    if months > MAX_PROJECTION_MONTHS:
+        return _error(f"months must be at most {MAX_PROJECTION_MONTHS} (got {months:g}).")
+
     growth_rate = monthly_growth_rate_percent / 100
     projected_size_gb = current_size_gb * ((1 + growth_rate) ** months)
 

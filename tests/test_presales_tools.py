@@ -221,5 +221,69 @@ class TestSizeDatabaseStorage:
         assert result_below["storage_tier_recommendation"] == "Standard"
 
 
+class TestQuoteSafety:
+    """
+    Regression tests for the Day-1 fixes: these numbers go into customer quotes, so a
+    tool must never price one tier while labelling it another, or crash on bad input.
+    """
+
+    @pytest.mark.parametrize("given, canonical, price", [
+        ("cool", "Cool", 0.12),
+        ("ARCHIVE", "Archive", 0.04),
+        ("  standard ", "Standard", 0.23),
+    ])
+    def test_storage_class_is_case_insensitive(self, given, canonical, price):
+        result = calculate_backup_and_cost.invoke(
+            {"data_volume_gb": 10, "bandwidth_mbps": 100, "storage_class": given})
+        assert result["storage_class_used"] == canonical
+        assert result["calculated_monthly_cost_usd"] == price
+
+    def test_unknown_storage_class_returns_error_not_standard_price(self):
+        result = calculate_backup_and_cost.invoke(
+            {"data_volume_gb": 10, "bandwidth_mbps": 100, "storage_class": "Glacier"})
+        assert "error" in result
+        assert "calculated_monthly_cost_usd" not in result
+        assert "Standard, Cool, Archive" in result["error"]
+
+    def test_backup_duration_uses_decimal_units(self):
+        # 10 GB = 8e10 bit; 100 Mbps * 80% = 8e7 bit/s -> 1000 s = 16.7 min.
+        result = calculate_backup_and_cost.invoke({"data_volume_gb": 10, "bandwidth_mbps": 100})
+        assert result["estimated_minutes"] == 16.7
+        assert result["estimated_hours"] == 0.28
+
+    @pytest.mark.parametrize("volume, bandwidth", [
+        (10, 0), (10, -5), (0, 100), (-1, 100), (float("nan"), 100), (10, float("inf")),
+    ])
+    def test_backup_rejects_invalid_numbers(self, volume, bandwidth):
+        result = calculate_backup_and_cost.invoke(
+            {"data_volume_gb": volume, "bandwidth_mbps": bandwidth})
+        assert "error" in result
+
+    @pytest.mark.parametrize("given, canonical", [
+        ("Java", "java"), ("NodeJS", "nodejs"), ("node.js", "nodejs"), ("PY", "python"),
+    ])
+    def test_app_type_is_case_insensitive_with_aliases(self, given, canonical):
+        result = size_web_app_vm.invoke({"ccu": 100, "app_type": given})
+        assert result["app_type"] == canonical
+
+    def test_unknown_app_type_returns_error_not_java(self):
+        result = size_web_app_vm.invoke({"ccu": 100, "app_type": "golang"})
+        assert "error" in result
+        assert "recommended_vcpu" not in result
+
+    def test_negative_ccu_returns_error(self):
+        assert "error" in size_web_app_vm.invoke({"ccu": -10, "app_type": "java"})
+
+    @pytest.mark.parametrize("args", [
+        {"current_size_gb": 0, "monthly_growth_rate_percent": 10, "months": 12, "required_iops": 100},
+        {"current_size_gb": 100, "monthly_growth_rate_percent": -5, "months": 12, "required_iops": 100},
+        {"current_size_gb": 100, "monthly_growth_rate_percent": 10, "months": -1, "required_iops": 100},
+        {"current_size_gb": 100, "monthly_growth_rate_percent": 10, "months": 121, "required_iops": 100},
+        {"current_size_gb": 100, "monthly_growth_rate_percent": 10, "months": 12, "required_iops": -1},
+    ])
+    def test_database_sizing_rejects_invalid_inputs(self, args):
+        assert "error" in size_database_storage.invoke(args)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

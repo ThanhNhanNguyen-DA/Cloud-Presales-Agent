@@ -9,7 +9,7 @@ from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 from app.main import app
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-API-Key": "test-api-key"})
 
 
 def test_health_check():
@@ -22,7 +22,7 @@ def test_chat_endpoint():
     """The endpoint is async, runs the graph via ainvoke, and returns the live RAGAS scorecard."""
     mock_result = {"route": "general", "final_response": "Hello! How can I help you today?",
                    "raw_tool_output": None}
-    ragas = {"context_precision": None, "faithfulness": None, "answer_relevancy": 0.7}
+    ragas = {"faithfulness": None, "answer_relevancy": 0.7}
     with patch("app.main.graph") as mock_graph, \
          patch("app.main.evaluate_answer_async", new=AsyncMock(return_value=ragas)) as mock_eval:
         mock_graph.ainvoke = AsyncMock(return_value=mock_result)
@@ -38,14 +38,14 @@ def test_chat_endpoint():
 
 def test_chat_stream_endpoint():
     # With stream_mode=["updates","messages"], the graph yields (mode, payload) tuples.
-    def fake_stream(_state, **_kwargs):  # **_kwargs absorbs stream_mode=[...]
+    async def fake_stream(_state, **_kwargs):  # **_kwargs absorbs stream_mode=[...]
         yield ("updates", {"supervisor": {"route": "general", "final_response": None}})
         yield ("updates", {"general": {"route": "general", "final_response": "Hi there!"}})
 
-    ragas = {"context_precision": None, "faithfulness": None, "answer_relevancy": 0.7}
+    ragas = {"faithfulness": None, "answer_relevancy": 0.7}
     with patch("app.main.graph") as mock_graph, \
          patch("app.main.evaluate_answer_async", new=AsyncMock(return_value=ragas)):
-        mock_graph.stream.side_effect = fake_stream
+        mock_graph.astream = fake_stream
         response = client.post("/chat/stream", json={"query": "Hello"})
 
     assert response.status_code == 200
@@ -58,14 +58,22 @@ def test_chat_stream_endpoint():
     assert "Hi there!" in body
 
 
+def _post_feedback(payload):
+    """
+    Call /feedback through the REAL `save_user_feedback` tool (so its input schema is
+    genuinely validated), with only the DB and the embedding model mocked. These tests
+    used to hit the live Supabase project and insert fake corrections into the feedback
+    memory on every run.
+    """
+    with patch("app.tools.memory_tools.embed_text", return_value=[0.0] * 512), \
+         patch("app.tools.memory_tools.supabase") as mock_sb:
+        response = client.post("/feedback", json=payload)
+    return response, mock_sb
+
+
 def test_feedback_endpoint_upvote_no_correction():
-    """
-    Upvote case: correction is None. Exercises the REAL tool (not mocked) so the
-    input-schema validation is genuinely tested — `save_user_feedback` must accept
-    correction=None. The tool catches any DB error internally and returns a string,
-    so this stays 200 even without a live Supabase connection.
-    """
-    response = client.post("/feedback", json={
+    """Upvote case: `save_user_feedback` must accept correction=None."""
+    response, mock_sb = _post_feedback({
         "query": "test query",
         "response": "test response",
         "is_positive": True,
@@ -73,12 +81,15 @@ def test_feedback_endpoint_upvote_no_correction():
     })
 
     assert response.status_code == 200
-    assert "message" in response.json()
+    assert "recorded successfully" in response.json()["message"]
+    mock_sb.table.assert_called_once_with("cloud_feedback_memory")
+    row = mock_sb.table.return_value.insert.call_args.args[0]
+    assert row["is_positive"] is True and row["user_correction"] is None
 
 
 def test_feedback_endpoint_downvote_with_correction():
-    """Downvote case with a correction string, against the real tool."""
-    response = client.post("/feedback", json={
+    """Downvote case with a correction string."""
+    response, mock_sb = _post_feedback({
         "query": "test query",
         "response": "wrong response",
         "is_positive": False,
@@ -86,7 +97,10 @@ def test_feedback_endpoint_downvote_with_correction():
     })
 
     assert response.status_code == 200
-    assert "message" in response.json()
+    assert "recorded successfully" in response.json()["message"]
+    row = mock_sb.table.return_value.insert.call_args.args[0]
+    assert row["is_positive"] is False
+    assert row["user_correction"] == "The correct answer is X."
 
 
 if __name__ == "__main__":

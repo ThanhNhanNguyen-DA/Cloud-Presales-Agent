@@ -10,7 +10,7 @@ from app.tools.embedding_tool import embed_text
 @tool
 def search_cloud_documents(
     query: str,
-    category: str = None,
+    category: str | None = None,
     match_threshold: float = 0.6,
     match_count: int = 3
 ) -> str:

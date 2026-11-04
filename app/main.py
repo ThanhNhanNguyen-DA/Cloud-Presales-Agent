@@ -8,43 +8,113 @@ Exposes:
 - GET  /health       -> liveness check
 
 Async design (pragmatic):
-- Endpoints are `async def`; the graph runs via `ainvoke`/a threaded `stream` so the
-  event loop is never blocked by the (synchronous) LLM, Supabase, and embedding calls.
+- Endpoints are `async def`; the graph runs via `ainvoke` / `astream`. Its nodes are sync
+  (LLM, Supabase and embedding calls); LangGraph runs them in worker threads, so the event
+  loop is never blocked.
 - Blocking helpers (conversation load/save, feedback) are offloaded with `asyncio.to_thread`.
-- Each answer is scored LIVE with the three reference-free RAGAS metrics, computed AFTER
-  the answer is produced (so it never delays time-to-first-token) and returned with it.
-  The three ground-truth metrics stay in the offline batch job (scripts/run_ragas_eval.py).
+- Each answer is scored LIVE with two reference-free RAGAS metrics (faithfulness, answer
+  relevancy), computed AFTER the answer is produced (so it never delays time-to-first-token)
+  and returned with it. The other metrics stay in the offline batch job
+  (scripts/run_ragas_eval.py).
+
+Observability: every request gets an id (X-Request-ID), every log line carries it, and each
+answered question logs one summary line (route, latency, LLM calls, tokens) — see
+app/observability.py.
 """
 
 import asyncio
 import json
+import logging
+import os
+import string
 import time
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from typing import Literal
+
+from fastapi import Depends, FastAPI, HTTPException, Path, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from app import security
+from app.agents.tool_agent import message_text
+from app.config import validate_config
 from app.graph.builder import build_graph
-from app.tools.memory_tools import save_user_feedback
+from app.observability import current_metrics, setup_logging, start_request
+from app.tools.memory_tools import list_feedback, review_feedback, store_feedback
+from app.tools.embedding_tool import get_embedding_model
 from app.tools.conversation_tools import load_conversation_history, save_conversation_turn
 from app.evaluation.metrics import evaluate_answer_async
 
-app = FastAPI(title="Cloud Presales Agentic RAG Chatbot API")
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Settings are checked when the server starts, not at import (keeps tests env-free).
+    setup_logging()
+    validate_config()
+    security.settings.validate()
+    if os.getenv("WARMUP_EMBEDDINGS", "true").strip().lower() not in {"0", "false", "no"}:
+        # Load the embedding model now (~15 s) instead of on the first user request.
+        await asyncio.to_thread(get_embedding_model)
+    yield
+
+
+app = FastAPI(title="Cloud Presales Agentic RAG Chatbot API", lifespan=lifespan)
+
+_REQUEST_ID_OK = set(string.ascii_letters + string.digits + "-_.")
+
+
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    """
+    Give every request an id (the caller's X-Request-ID if it looks sane, else a new one),
+    bind it + fresh metrics to the context for logging, and echo it in the response.
+    """
+    incoming = request.headers.get("x-request-id", "")
+    valid = 0 < len(incoming) <= 64 and set(incoming) <= _REQUEST_ID_OK
+    metrics = start_request(incoming if valid else None)
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = metrics.request_id
+    if request.url.path != "/health":
+        # For /chat/stream this is time-to-headers; the full summary is logged at stream end.
+        logger.info("%s %s -> %d in %.3fs", request.method, request.url.path,
+                    response.status_code, metrics.elapsed())
+    return response
+
+
+def _log_summary(endpoint: str, route: str | None, **extra) -> None:
+    """One line per answered question: route, latency, LLM calls and tokens."""
+    metrics = current_metrics()
+    stats = metrics.summary() if metrics else {}
+    fields = " ".join(f"{k}={v}" for k, v in {**stats, **extra}.items())
+    logger.info("%s done route=%s %s", endpoint, route, fields)
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for easy local Streamlit testing; restrict before deploying.
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=security.settings.cors_origins,  # CORS_ORIGINS in .env
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
 
 graph = build_graph()
 
 
+# Input limits: a question is short text; anything bigger is abuse or a mistake and only
+# burns LLM tokens. session_id is an opaque client-chosen id (the UI sends a UUID).
+MAX_QUERY_CHARS = 2000
+MAX_RESPONSE_CHARS = 20000
+MAX_CORRECTION_CHARS = 2000
+SESSION_ID_PATTERN = r"^[A-Za-z0-9_.:-]{1,100}$"
+
+
 class ChatRequest(BaseModel):
-    query: str
-    session_id: str | None = None  # groups turns of one conversation; None = stateless
+    query: str = Field(min_length=1, max_length=MAX_QUERY_CHARS)
+    # Groups turns of one conversation; None = stateless.
+    session_id: str | None = Field(default=None, pattern=SESSION_ID_PATTERN)
 
 
 class ChatResponse(BaseModel):
@@ -56,10 +126,19 @@ class ChatResponse(BaseModel):
 
 
 class FeedbackRequest(BaseModel):
-    query: str
-    response: str
+    query: str = Field(min_length=1, max_length=MAX_QUERY_CHARS)
+    response: str = Field(max_length=MAX_RESPONSE_CHARS)
     is_positive: bool
-    correction: str | None = None
+    correction: str | None = Field(default=None, max_length=MAX_CORRECTION_CHARS)
+
+
+class ReviewRequest(BaseModel):
+    decision: Literal["approve", "reject"]
+
+
+def _scoped_session(caller: str, session_id: str | None) -> str | None:
+    """Namespace the conversation by API key, so one client can't read another's history."""
+    return f"{caller}:{session_id}" if session_id else None
 
 
 def _initial_state(query: str, session_id: str | None = None) -> dict:
@@ -94,14 +173,21 @@ def _persist_turn(session_id: str | None, query: str, response: str | None, rout
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, caller: str = Depends(security.chat_caller)):
     """Run the full graph, score the answer live (RAGAS), and return both together."""
-    state = await asyncio.to_thread(_initial_state, request.query, request.session_id)
-    result = await graph.ainvoke(state)
+    session_id = _scoped_session(caller, request.session_id)
+    state = await asyncio.to_thread(_initial_state, request.query, session_id)
+    try:
+        result = await graph.ainvoke(state)
+    except Exception as exc:  # noqa: BLE001 - e.g. every Groq model unavailable
+        logger.exception("Graph failed: %s", exc)
+        raise HTTPException(
+            status_code=502, detail="The assistant failed to answer. Please try again."
+        ) from None
 
     # Save the conversation turn so a fast follow-up sees it.
     await asyncio.to_thread(
-        _persist_turn, request.session_id, request.query,
+        _persist_turn, session_id, request.query,
         result.get("final_response"), result.get("route"),
     )
 
@@ -111,7 +197,13 @@ async def chat(request: ChatRequest):
         result.get("final_response") or "",
         result.get("raw_tool_output") or "",
     )
-    return ChatResponse(route=result["route"], response=result["final_response"], ragas=ragas)
+    _log_summary("chat", result.get("route"), graded=result.get("grading_passed"),
+                 retries=result.get("retry_count") or 0)
+    return ChatResponse(
+        route=result.get("route") or "general",
+        response=result.get("final_response") or "",
+        ragas=ragas,
+    )
 
 
 # Nodes that produce the user-facing answer. We stream tokens ONLY from these — the
@@ -119,21 +211,14 @@ async def chat(request: ChatRequest):
 # internal and must not leak into the answer.
 ANSWER_NODES = {"calculator", "document", "competitor", "general"}
 
-_STREAM_END = object()  # sentinel marking the sync graph stream is exhausted
 
 
-def _chunk_text(chunk) -> str:
-    """Extract plain text from a LangChain message chunk (content may be str or blocks)."""
-    content = getattr(chunk, "content", "")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):  # some providers return a list of content blocks
-        return "".join(part.get("text", "") if isinstance(part, dict) else str(part) for part in content)
-    return ""
+def _sse(event: dict) -> str:
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 @app.post("/chat/stream")
-async def chat_stream(request: ChatRequest):
+async def chat_stream(request: ChatRequest, caller: str = Depends(security.chat_caller)):
     """
     Stream the answer token-by-token via SSE, plus progress and timing events.
 
@@ -141,13 +226,19 @@ async def chat_stream(request: ChatRequest):
       - {"type":"progress","node":...}   after each graph node completes
       - {"type":"ttft","seconds":...}    at the first answer token (time-to-first-token)
       - {"type":"token","text":...}      each answer token as it is generated
+      - {"type":"reset"}                 discard the tokens shown so far: a NEW answer message
+                                         starts (the grader asked for a retry, or the agent
+                                         wrote text before calling a tool)
+      - {"type":"error","message":...}   the graph failed; no `final` follows
       - {"type":"ragas", ...metrics}     the live scorecard, once the answer is complete
       - {"type":"final","route","response","ttft","total","ragas"}   once the graph finishes
 
-    The sync graph generator is pumped from a worker thread (one `next()` per step) so it
-    never blocks the event loop. RAGAS is scored AFTER the tokens are sent, so it never
+    The graph is consumed with `graph.astream`; LangGraph runs the sync nodes in worker
+    threads, so the event loop is never blocked. RAGAS is scored AFTER the tokens are sent, so it never
     delays TTFT — the scorecard simply appears right after the answer.
     """
+
+    session_id = _scoped_session(caller, request.session_id)
 
     async def event_generator():
         t0 = time.perf_counter()
@@ -155,68 +246,121 @@ async def chat_stream(request: ChatRequest):
         route = None
         final_response = None
         raw_output = None
+        current_message = None  # identifies the LLM message whose tokens are on screen
 
-        state = await asyncio.to_thread(_initial_state, request.query, request.session_id)
-        stream = graph.stream(state, stream_mode=["updates", "messages"])
-
-        # Pump the synchronous generator one step at a time in a thread (non-blocking).
-        while True:
-            item = await asyncio.to_thread(next, stream, _STREAM_END)
-            if item is _STREAM_END:
-                break
-            mode, payload = item
-            if mode == "updates":
-                for node_name, node_state in payload.items():
-                    yield f"data: {json.dumps({'type': 'progress', 'node': node_name}, ensure_ascii=False)}\n\n"
-                    if isinstance(node_state, dict):
-                        route = node_state.get("route") or route
-                        final_response = node_state.get("final_response") or final_response
-                        raw_output = node_state.get("raw_tool_output") or raw_output
-            else:  # mode == "messages"
-                chunk, meta = payload
-                if meta.get("langgraph_node") not in ANSWER_NODES:
-                    continue
-                text = _chunk_text(chunk)
-                if not text:
-                    continue
-                if ttft is None:
-                    ttft = time.perf_counter() - t0
-                    yield f"data: {json.dumps({'type': 'ttft', 'seconds': round(ttft, 3)}, ensure_ascii=False)}\n\n"
-                yield f"data: {json.dumps({'type': 'token', 'text': text}, ensure_ascii=False)}\n\n"
+        try:
+            state = await asyncio.to_thread(_initial_state, request.query, session_id)
+            # LangGraph runs the (sync) nodes in worker threads and streams their updates
+            # and LLM tokens here, without blocking the event loop.
+            async for item in graph.astream(state, stream_mode=["updates", "messages"]):
+                mode, payload = item
+                if mode == "updates":
+                    for node_name, node_state in payload.items():
+                        yield _sse({"type": "progress", "node": node_name})
+                        if isinstance(node_state, dict):
+                            # Key presence, not truthiness: a retry legitimately resets
+                            # raw_tool_output, and the grader may rewrite final_response.
+                            route = node_state.get("route") or route
+                            if "final_response" in node_state:
+                                final_response = node_state["final_response"]
+                            if "raw_tool_output" in node_state:
+                                raw_output = node_state["raw_tool_output"]
+                else:  # mode == "messages"
+                    chunk, meta = payload
+                    if meta.get("langgraph_node") not in ANSWER_NODES:
+                        continue
+                    text = message_text(chunk)
+                    if not text:
+                        continue
+                    message_key = getattr(chunk, "id", None) or meta.get("langgraph_step")
+                    if current_message is not None and message_key != current_message:
+                        yield _sse({"type": "reset"})
+                    current_message = message_key
+                    if ttft is None:
+                        ttft = time.perf_counter() - t0
+                        yield _sse({"type": "ttft", "seconds": round(ttft, 3)})
+                    yield _sse({"type": "token", "text": text})
+        except Exception as exc:  # noqa: BLE001 - report instead of cutting the stream silently
+            logger.exception("Graph failed while streaming: %s", exc)
+            yield _sse({"type": "error", "message": "The assistant failed to answer. Please try again."})
+            return
 
         # Persist the conversation turn so a fast follow-up sees it.
-        await asyncio.to_thread(_persist_turn, request.session_id, request.query, final_response, route)
+        await asyncio.to_thread(_persist_turn, session_id, request.query, final_response, route)
 
         # Live RAGAS: scored after the tokens (never delays TTFT), emitted then echoed in `final`.
         ragas = await evaluate_answer_async(request.query, final_response or "", raw_output or "")
-        yield f"data: {json.dumps({'type': 'ragas', **ragas}, ensure_ascii=False)}\n\n"
+        yield _sse({"type": "ragas", **ragas})
 
-        final_msg = {
+        _log_summary("chat/stream", route, ttft_s=round(ttft, 3) if ttft is not None else None)
+        yield _sse({
             "type": "final",
             "route": route,
             "response": final_response,
             "ttft": round(ttft, 3) if ttft is not None else None,
             "total": round(time.perf_counter() - t0, 3),
             "ragas": ragas,
-        }
-        yield f"data: {json.dumps(final_msg, ensure_ascii=False)}\n\n"
+        })
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @app.post("/feedback")
-async def feedback(request: FeedbackRequest):
-    """Persist user feedback (Upvote/Downvote + optional correction) to the feedback memory."""
-    result = await asyncio.to_thread(
-        save_user_feedback.invoke,
-        {
-            "query": request.query,
-            "response": request.response,
-            "is_positive": request.is_positive,
-            "correction": request.correction,
-        },
-    )
-    return {"message": result}
+async def feedback(request: FeedbackRequest, caller: str = Depends(security.feedback_caller)):
+    """
+    Persist user feedback (Upvote/Downvote + optional correction) to the feedback memory.
+
+    A correction is stored as *pending* and only influences answers after an admin approves
+    it via /admin/feedback/{id}/review. The caller's key label is recorded as the submitter.
+    """
+    try:
+        message = await asyncio.to_thread(
+            store_feedback,
+            request.query,
+            request.response,
+            request.is_positive,
+            request.correction,
+            caller,
+        )
+    except Exception as exc:  # noqa: BLE001 - DB/embedding failure; don't leak internals
+        logger.exception("Could not save feedback: %s", exc)
+        raise HTTPException(status_code=502, detail="Could not save feedback. Please try again.") from None
+    return {"message": message}
+
+
+_DB_ERROR = "Database error (has sql/migrations/002_security.sql been run?)."
+
+
+@app.get("/admin/feedback")
+async def admin_list_feedback(
+    status: Literal["pending", "approved", "rejected"] = "pending",
+    limit: int = 50,
+    _: str = Depends(security.require_admin_key),
+):
+    """List feedback awaiting review (or already reviewed), newest first."""
+    try:
+        rows = await asyncio.to_thread(list_feedback, status, max(1, min(limit, 200)))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Could not list feedback: %s", exc)
+        raise HTTPException(status_code=502, detail=_DB_ERROR) from None
+    return {"items": rows}
+
+
+@app.post("/admin/feedback/{feedback_id}/review")
+async def admin_review_feedback(
+    body: ReviewRequest,
+    feedback_id: str = Path(pattern=r"^[0-9a-fA-F-]{36}$"),
+    reviewer: str = Depends(security.require_admin_key),
+):
+    """Approve (the correction starts being used) or reject one feedback row."""
+    try:
+        row = await asyncio.to_thread(review_feedback, feedback_id, body.decision == "approve", reviewer)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Could not review feedback %s: %s", feedback_id, exc)
+        raise HTTPException(status_code=502, detail=_DB_ERROR) from None
+    if row is None:
+        raise HTTPException(status_code=404, detail="Feedback not found.")
+    return {"id": row.get("id"), "review_status": row.get("review_status")}
 
 
 @app.get("/health")

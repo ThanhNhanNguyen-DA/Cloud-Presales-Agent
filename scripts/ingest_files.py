@@ -51,7 +51,7 @@ def extract_text(path: Path) -> str:
         try:
             from pypdf import PdfReader
         except ImportError:
-            raise ImportError("PDF support requires 'pypdf'. Install it with: pip install pypdf")
+            raise ImportError("PDF support requires 'pypdf'. Install it with: pip install pypdf") from None
         reader = PdfReader(str(path))
         return "\n".join((page.extract_text() or "") for page in reader.pages)
 
@@ -59,7 +59,7 @@ def extract_text(path: Path) -> str:
         try:
             import docx  # python-docx
         except ImportError:
-            raise ImportError("DOCX support requires 'python-docx'. Install it with: pip install python-docx")
+            raise ImportError("DOCX support requires 'python-docx'. Install it with: pip install python-docx") from None
         document = docx.Document(str(path))
         return "\n".join(p.text for p in document.paragraphs)
 

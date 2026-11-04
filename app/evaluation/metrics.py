@@ -45,15 +45,32 @@ def _get_judge():
     return _judge
 
 
+_NUMBER = re.compile(r"(\d+(?:[.,]\d+)?|[.,]\d+)\s*(%?)")
+
+
+def parse_score(text: str) -> float | None:
+    """
+    First number in the judge's reply as a score in [0, 1].
+
+    "0.85" -> 0.85, ".5" -> 0.5, "0,7" -> 0.7, "85%" -> 0.85, "85" -> 0.85 (a 0-100 scale),
+    "Score: 1" -> 1.0. Anything above 100 is rejected (None) rather than clamped to 1.0.
+    """
+    match = _NUMBER.search(text or "")
+    if not match:
+        return None
+    value = float(match.group(1).replace(",", "."))
+    if match.group(2) == "%" or 1.0 < value <= 100.0:
+        value /= 100.0
+    if not 0.0 <= value <= 1.0:
+        return None
+    return round(value, 3)
+
+
 def _score_from_llm(prompt: str) -> float | None:
     """Ask the judge for a single 0.0–1.0 number and parse it; None on any failure."""
     try:
         raw = _get_judge().invoke(prompt).content
-        text = raw if isinstance(raw, str) else str(raw)
-        match = re.search(r"\d?\.\d+|\d", text)
-        if not match:
-            return None
-        return round(max(0.0, min(1.0, float(match.group()))), 3)
+        return parse_score(raw if isinstance(raw, str) else str(raw))
     except Exception:
         return None
 
@@ -194,16 +211,17 @@ def answer_similarity(answer: str, ground_truth: str) -> float | None:
 
 async def evaluate_answer_async(question: str, answer: str, context: str = "") -> dict[str, float | None]:
     """
-    Score one answer live with the three reference-free metrics, concurrently.
+    Score one answer live, concurrently, with the two lightest reference-free metrics.
 
-    The judge LLM calls (context_precision, faithfulness) and the embedding forward-pass
-    (answer_relevancy) are blocking/CPU-bound, so each is offloaded to a worker thread with
-    asyncio.to_thread and the three run together via asyncio.gather — keeping the FastAPI
-    event loop free. Called right after the answer is produced (see app/main.py).
+    Kept deliberately cheap — one Groq judge call (faithfulness) plus one local-embedding
+    metric (answer_relevancy) — so live scoring adds minimal per-answer LLM load and rarely
+    forces a rate-limit fallback. Each is offloaded to a worker thread via asyncio.to_thread
+    and they run together with asyncio.gather, keeping the FastAPI event loop free. Called
+    right after the answer is produced (see app/main.py). context_precision, being a second
+    judge call, is left to the offline batch evaluator.
     """
-    cp, fth, rel = await asyncio.gather(
-        asyncio.to_thread(context_precision, question, context),
+    fth, rel = await asyncio.gather(
         asyncio.to_thread(faithfulness, answer, context),
         asyncio.to_thread(answer_relevancy, question, answer),
     )
-    return {"context_precision": cp, "faithfulness": fth, "answer_relevancy": rel}
+    return {"faithfulness": fth, "answer_relevancy": rel}

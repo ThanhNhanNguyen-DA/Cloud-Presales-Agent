@@ -40,7 +40,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
@@ -206,7 +206,7 @@ def crawl_provider(name: str, homepage: str, max_pages: int, delay: float) -> li
     if home_html:
         soup = BeautifulSoup(home_html, "html.parser")
         pages.append(Page(name, homepage, (soup.title.string or "").strip() if soup.title else "",
-                          datetime.now(timezone.utc).isoformat(), _clean_text(soup), _extract_tables(soup)))
+                          datetime.now(UTC).isoformat(), _clean_text(soup), _extract_tables(soup)))
         visited.add(homepage.rstrip("/"))
         queue = _discover_links(soup, homepage, domain)
         print(f"    ✓ homepage · discovered {len(queue)} candidate page(s)")
@@ -230,7 +230,7 @@ def crawl_provider(name: str, homepage: str, max_pages: int, delay: float) -> li
         if len(text) < 120:  # near-empty / JS-only page — nothing correct to keep
             continue
         pages.append(Page(name, url, (soup.title.string or "").strip() if soup.title else "",
-                          datetime.now(timezone.utc).isoformat(), text, _extract_tables(soup)))
+                          datetime.now(UTC).isoformat(), text, _extract_tables(soup)))
         print(f"    ✓ {url}  ({len(text)} chars, {len(pages[-1].tables)} table(s))")
 
     print(f"  → {len(pages)} page(s) kept for {name}")
@@ -249,7 +249,7 @@ def write_outputs(all_pages: dict[str, list[Page]], out_dir: Path) -> None:
     with summary.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["provider", "url", "title", "num_tables", "text_length", "fetched_at"])
-        for name, pages in all_pages.items():
+        for pages in all_pages.values():
             for p in pages:
                 writer.writerow([p.provider, p.url, p.title, len(p.tables), len(p.text), p.fetched_at])
     total = sum(len(p) for p in all_pages.values())

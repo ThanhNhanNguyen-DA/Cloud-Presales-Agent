@@ -13,12 +13,14 @@ def test_graph_runs_end_to_end():
     
     # Mock the LLM responses
     def mock_supervisor_response(prompt):
-        """Mock supervisor routing based on query content."""
-        if "backup" in prompt.lower() or "duration" in prompt.lower():
+        """Mock supervisor routing based on the LATEST question only (not the prompt template,
+        which itself mentions "backup duration" and used to send every query to calculator)."""
+        question = prompt.split("LATEST question:", 1)[1].splitlines()[0].lower()
+        if "backup" in question or "duration" in question:
             return MagicMock(content="calculator")
-        elif "sla" in prompt.lower() or "documentation" in prompt.lower():
+        elif "sla" in question or "documentation" in question:
             return MagicMock(content="document")
-        elif "aws" in prompt.lower() or "equivalent" in prompt.lower():
+        elif "aws" in question or "equivalent" in question:
             return MagicMock(content="competitor")
         else:
             return MagicMock(content="general")
@@ -44,7 +46,9 @@ def test_graph_runs_end_to_end():
     
     with patch('app.graph.supervisor.llm') as mock_supervisor_llm, \
          patch('app.graph.builder.llm') as mock_builder_llm, \
-         patch('app.agents.calculator_agent.llm_with_tools') as mock_calc_llm:
+         patch('app.agents.calculator_agent.llm_with_tools') as mock_calc_llm, \
+         patch('app.agents.document_agent.llm_with_tools') as mock_doc_llm, \
+         patch('app.agents.competitor_agent.llm_with_tools') as mock_comp_llm:
         
         mock_supervisor_llm.invoke = mock_supervisor_response
         mock_builder_llm.invoke = mock_general_response
@@ -54,6 +58,10 @@ def test_graph_runs_end_to_end():
         mock_calc_response.content = "Based on the provided information, the backup will take approximately 0.39 hours (about 23 minutes) and cost 0.23 USD per month."
         mock_calc_response.tool_calls = None
         mock_calc_llm.invoke = MagicMock(return_value=mock_calc_response)
+        mock_doc_llm.invoke = MagicMock(return_value=MagicMock(
+            content="The Object Storage SLA is 99.9% monthly uptime.", tool_calls=None))
+        mock_comp_llm.invoke = MagicMock(return_value=MagicMock(
+            content="**AWS S3 → Object Storage**.", tool_calls=None))
         
         graph = build_graph()
         
@@ -70,7 +78,7 @@ def test_graph_runs_end_to_end():
             # Assertions
             assert result["final_response"] is not None, f"final_response is None for query: {query}"
             assert len(result["final_response"]) > 0, f"final_response is empty for query: {query}"
-            assert result["route"] is not None, f"route is None for query: {query}"
+            assert result["route"] == expected_route, f"wrong route for query: {query}"
             
             print(f"✓ Query: '{query}'")
             print(f"  Route: {result['route']}")

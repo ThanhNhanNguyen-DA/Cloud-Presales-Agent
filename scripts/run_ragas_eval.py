@@ -35,7 +35,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from statistics import mean
 
@@ -137,7 +137,7 @@ def evaluate_set(samples: list[dict]) -> dict:
     groups = {g: {k: aggregate[k] for k in keys} for g, keys in GROUPS.items()}
 
     return {
-        "run_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "run_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "num_samples": len(samples),
         "groups": groups,
         "aggregate": aggregate,

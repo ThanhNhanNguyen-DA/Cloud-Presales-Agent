@@ -1,3 +1,6 @@
+-- Base schema. After running this file, run every file in sql/migrations/ in order
+-- (002_security.sql adds the feedback review workflow and Row Level Security).
+
 -- Enable pgvector extension to store and query vector embeddings
 CREATE EXTENSION IF NOT EXISTS vector;
 

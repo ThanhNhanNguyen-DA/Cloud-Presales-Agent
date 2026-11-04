@@ -6,13 +6,12 @@ The most reliable approach is to manually copy-paste SQL into the Supabase Dashb
 This script prints those instructions with the SQL content for easy copy-paste.
 """
 
-import os
 from pathlib import Path
 
 
 def read_sql_file(filepath):
     """Read SQL file content."""
-    with open(filepath, 'r') as f:
+    with open(filepath) as f:
         return f.read()
 
 
@@ -61,6 +60,12 @@ def print_migration_instructions():
     else:
         print(f"⚠️  {seed_path} not found")
     
+    for migration in sorted((base_dir / 'sql' / 'migrations').glob('*.sql')):
+        print("\n" + "-"*80)
+        print(f"📄 MIGRATION: sql/migrations/{migration.name}  (run after the files above)")
+        print("-"*80)
+        print(read_sql_file(migration))
+
     print("\n" + "="*80)
     print("✅ After running both queries:")
     print("   - 5 tables created (cloud_documents, cloud_competitor_mapping,")

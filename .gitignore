@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 venv/
 .venv/
+.run/
 *.egg-info/
 .pytest_cache/
 .vscode/
@@ -11,4 +12,3 @@ venv/
 /data
 /evaluation
 PROJECT_REPORT.md
-pytest.ini

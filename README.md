@@ -2,7 +2,7 @@
 
 **An AI Agent for cloud presales — it routes each question to a specialist tool, fact-checks every number before it reaches the customer, and learns from human corrections.**
 
-Built with **LangGraph** (orchestration), **Groq / Llama 3.3 70B** (LLM), **Qwen3-Embedding** (local vectorisation), **Supabase / pgvector** (vector + structured data), **FastAPI** and **Streamlit**.
+Built with **LangGraph** (orchestration), **Groq / GPT-OSS 120B** (LLM, Qwen3.8 27B fallback), **Qwen3-Embedding** (local vectorisation), **Supabase / pgvector** (vector + structured data), **FastAPI** and **Streamlit**.
 
 ---
 
@@ -37,16 +37,17 @@ An AI agent behind one chat box:
                  └───────────────┬─────────────────┘        │
                                  ▼                           │
                        ┌────────────────────┐               │
-                       │  GROUNDING GRADER   │  numbers match?
+                       │  GROUNDING GRADER   │  facts match tool data?
                        └───┬────────────┬────┘               │
                     retry  │            │  pass / exhausted   ▼
-              (≤1, back to │            └────────▶ END ◀──────┘
-               supervisor) └──────────▶ supervisor
+             (≤1, SAME     │            └────────▶ END ◀──────┘
+              specialist,  └──────────▶ calculator | document | competitor
+              + feedback)
 ```
 
 ### Where the LLM is used
 
-Called at **six** places in the request path (below), plus the RAGAS judge for the live scorecard — up to two extra calls per answer (context precision + faithfulness; answer relevancy uses only embeddings). Vectorisation is **not** LLM work — embeddings run locally on Qwen, so the Groq key only pays for reasoning.
+Called at **six** places in the request path (below), plus the RAGAS judge for the live scorecard — one extra call per answer (faithfulness; answer relevancy uses only embeddings). Vectorisation is **not** LLM work — embeddings run locally on Qwen, so the Groq key only pays for reasoning.
 
 | # | Task | File | Temp | Mechanism |
 |---|------|------|:----:|-----------|
@@ -57,7 +58,7 @@ Called at **six** places in the request path (below), plus the RAGAS judge for t
 | 5 | General answer | [`graph/builder.py`](app/graph/builder.py) | 0.3 | Direct, no tools |
 | 6 | Grounding grader | [`graders/self_rag_grader.py`](app/graders/self_rag_grader.py) | 0 | Prompt → PASS/FAIL |
 
-All calls go through one wrapper, [`app/llm.py`](app/llm.py): an ordered model chain (`llama-3.3-70b-versatile` → `llama-3.1-8b-instant`) that switches model the moment one is rate-limited, and — if all are exhausted — waits out the limit (honouring `retry-after`) and retries, so a free-tier rate limit rides out instead of crashing. Every prompt follows the same recipe: **role · context · task · output format · anti-hallucination constraints**.
+All calls go through one wrapper, [`app/llm.py`](app/llm.py): an ordered model chain (`openai/gpt-oss-120b` → `qwen/qwen3.8-27b`) that switches model the moment one is rate-limited, and — if all are exhausted — waits out the limit (honouring `retry-after`) and retries, so a free-tier rate limit rides out instead of crashing. Every prompt follows the same recipe: **role · context · task · output format · anti-hallucination constraints**.
 
 ### Data (Supabase / pgvector)
 
@@ -77,9 +78,9 @@ Text is vectorised by **Qwen3-Embedding-0.6B**, truncated via Matryoshka to **51
 
 Two live checks on every answer, plus an offline batch.
 
-**Live 1 — Grounding Grader (gate).** After a specialist produces an answer and *before it is shown to the user*, a separate LLM call cross-checks the numbers in the answer (cost, time, vCPU, RAM, IOPS, storage) against the raw tool/RAG output. On a mismatch it retries once (back through the supervisor); if it still fails it delivers the answer with a clear ⚠️ warning to double-check — **never a silently wrong number**. Answers with no numbers (e.g. general chat) auto-pass. See [`app/graders/self_rag_grader.py`](app/graders/self_rag_grader.py).
+**Live 1 — Grounding Grader (gate).** After a specialist produces an answer and *before it is shown to the user*, a separate LLM call cross-checks the answer against the raw tool/RAG output (each tool call is recorded with its arguments and result, and the grader also sees the user's question): numbers (cost, time, vCPU, RAM, IOPS, storage, SLA %), service names, certifications and SLA terms. It replies with JSON `{"verdict", "issues"}`. On a FAIL the **same specialist** runs once more with the issues in its prompt (routing and memory recall are not repeated, and the retry is graded against its own tool calls only); if it still fails, the answer is delivered with a clear ⚠️ warning — **never a silently wrong number**. If the grader itself can't run or answers unparseably, the answer gets a "could not verify" warning instead of looping. Answers with no tool data (general chat, clarifying questions) auto-pass. See [`app/graders/self_rag_grader.py`](app/graders/self_rag_grader.py).
 
-**Live 2 — RAGAS scorecard.** Right *after* the answer is produced (so it never delays time-to-first-token), the three **reference-free** metrics — Context Precision, Faithfulness, Answer Relevancy — are scored and returned with the answer (`ragas` field on `/chat`, a `ragas` SSE event on `/chat/stream`) and shown as a scorecard under the reply in the UI.
+**Live 2 — RAGAS scorecard.** Right *after* the answer is produced (so it never delays time-to-first-token), the two lightest **reference-free** metrics — Faithfulness (one judge call) and Answer Relevancy (local embeddings) — are scored (Context Precision stays in the offline batch) and returned with the answer (`ragas` field on `/chat`, a `ragas` SSE event on `/chat/stream`) and shown as a scorecard under the reply in the UI.
 
 **Offline — RAGAS batch.** All six metrics in three groups, computed with the project's own Groq judge + local embeddings (no external `ragas` package):
 
@@ -98,29 +99,40 @@ python -m scripts.run_ragas_eval        # uses data/eval/ground_truth.json → d
 
 ## Get started
 
-**Prerequisites:** Python 3.12+, a free [Groq API key](https://console.groq.com/keys), a [Supabase project](https://app.supabase.com).
+**Prerequisites:** Python 3.12+, [uv](https://docs.astral.sh/uv/), a free [Groq API key](https://console.groq.com/keys), a [Supabase project](https://app.supabase.com).
 
 ```bash
 # 1. Install
-python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env                                   # then fill in GROQ_API_KEY, SUPABASE_URL, SUPABASE_KEY
+uv venv --python python3.12 .venv                    # reuse an existing uv .venv if present
+source .venv/bin/activate                           # Windows: .venv\Scripts\activate
+uv pip sync requirements.lock                       # exact tested versions (app + tests)
+# to upgrade: uv pip compile requirements-dev.txt -o requirements.lock --upgrade
+test -f .env || cp .env.example .env                 # fill in GROQ_API_KEY, SUPABASE_URL, SUPABASE_KEY
 ```
-> `.env`: `EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B`, `EMBEDDING_DIM=512`. Optional `GROQ_MODELS=llama-3.3-70b-versatile,llama-3.1-8b-instant`. The embedding model (~1.2 GB) caches locally on first use — no key needed for it.
+> `.env`: `EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B`, `EMBEDDING_DIM=512`. Optional `GROQ_MODELS=openai/gpt-oss-120b,qwen/qwen3.8-27b`. The embedding model (~1.2 GB) caches locally on first use — no key needed for it.
 
 ```bash
-# 2. Database — run sql/schema.sql then sql/seed_data.sql in the Supabase SQL Editor
-#    (python -m app.db.run_migration prints the exact SQL). Creates 5 tables + 2 RPC + pgvector.
+# 2. Database — run sql/schema.sql, sql/seed_data.sql, then sql/migrations/*.sql in order,
+#    in the Supabase SQL Editor (python -m app.db.run_migration prints the exact SQL).
+#    Creates 5 tables + 2 RPC + pgvector, the feedback review columns, and Row Level Security.
+#    Use a secret / service_role key as SUPABASE_KEY (RLS blocks the anon key).
 
 # 3. Load RAG data (pick any)
 python -m scripts.ingest_documents                     # built-in sample docs (quick start)
 python -m scripts.ingest_files ./docs --category General   # your PDF/DOCX/TXT/MD
 python -m scripts.crawl_competitors --ingest           # crawl VN competitors → RAG store
 
-# 4. Run (two terminals)
-uvicorn app.main:app --reload --port 8000              # backend — docs at /docs
-streamlit run ui/streamlit_app.py                      # chat UI
+# 4. Run both services (Ctrl+C stops both)
+bash scripts/dev.sh
+
+# Or run separately in two activated terminals:
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+python -m streamlit run ui/streamlit_app.py --server.address 127.0.0.1 --server.port 8501
 ```
+
+Open the chat UI at **http://localhost:8501**, API docs at **http://localhost:8000/docs**,
+and the liveness check at **http://localhost:8000/health**. `scripts/dev.sh` uses
+`.venv/bin/python` directly, so Conda and shell activation are not required.
 
 Quick check:
 ```bash
@@ -136,25 +148,63 @@ curl -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
 |--------|------|------|---------|
 | `GET`  | `/health` | — | `{"status":"ok"}` |
 | `POST` | `/chat` | `{"query", "session_id"?}` | `{"route","response","ragas"}` |
-| `POST` | `/chat/stream` | `{"query", "session_id"?}` | **SSE**: `progress` → `ttft` → `token`× → `ragas` → `final` |
+| `POST` | `/chat/stream` | `{"query", "session_id"?}` | **SSE**: `progress` → `ttft` → `token`× (`reset` when a new answer message starts, e.g. a grader retry) → `ragas` → `final`; `error` if the graph fails |
 | `POST` | `/feedback` | `{"query","response","is_positive","correction"?}` | `{"message"}` |
+| `GET`  | `/admin/feedback?status=pending` | — (admin key) | `{"items":[…]}` |
+| `POST` | `/admin/feedback/{id}/review` | `{"decision":"approve"\|"reject"}` (admin key) | `{"id","review_status"}` |
+
+### Security
+
+- Every endpoint except `/health` needs an **`X-API-Key`** header matching one of `API_KEYS`
+  (`label:key`, comma-separated); `/admin/*` needs `ADMIN_API_KEY`. The server refuses to start
+  without `API_KEYS` (set `AUTH_DISABLED=true` only for throwaway local runs).
+- **Rate limits** per key: `RATE_LIMIT_PER_MINUTE` (chat, default 20) and
+  `FEEDBACK_RATE_LIMIT_PER_MINUTE` (default 30); over the limit → `429` with `Retry-After`.
+  In-memory, per process.
+- **Input limits:** `query` ≤ 2000 chars, `correction` ≤ 2000, `session_id` = 1–100 of `[A-Za-z0-9_.:-]`.
+  Conversations are namespaced per key, so one client can't read another's history.
+- **Human corrections are reviewed before use.** A downvote correction is stored as `pending`
+  (with the submitter's key label) and only reaches prompts after an admin approves it; it is
+  then injected inside a delimited `<reviewed_corrections>` block as reference data, never as
+  instructions. `FEEDBACK_AUTO_APPROVE=true` skips the review for demos.
+- CORS is limited to `CORS_ORIGINS`. All tables have RLS enabled with no policies.
 
 Pass a stable **`session_id`** to keep a conversation in context (multi-turn memory: recent turns are loaded before answering and saved after, so follow-ups like *"and the monthly cost?"* resolve). Omit it for a stateless call. The FastAPI app is fully **async** (graph via `ainvoke` / threaded stream; blocking DB & embedding calls offloaded with `asyncio.to_thread`).
 
 ## Testing
 
 ```bash
-pytest -q     # Groq + Supabase mocked; set any GROQ_API_KEY to allow imports
+python -m pytest -q     # ~4 s; no .env needed — Groq/Supabase/embeddings are mocked
 ```
+`tests/conftest.py` sets dummy credentials and blocks the real Supabase client and
+embedding model, so a test that forgets a mock fails instead of writing to your project.
 Covers the tools, each agent through the graph, the grounding grader (pass/fail/retry), the feedback loop, multi-turn memory, the async endpoints, the LLM rate-limit fallback/retry, the RAGAS metrics, and the chunkers.
+
+## Logging
+
+Every log line carries the request id (`[req=…]`); send `X-Request-ID` to set it, otherwise one
+is generated and returned in the `X-Request-ID` response header. Each LLM call logs model,
+latency and tokens, the supervisor logs the route, the grader its verdict, and each answered
+question ends with one summary line:
+
+```
+INFO [req=demo-001] app.main: chat done route=calculator latency_s=9.555 llm_calls=5 llm_s=7.085 tokens_in=3337 tokens_out=1442 graded=True retries=0
+```
+
+`LOG_LEVEL` (default `INFO`) sets the verbosity. Graph nodes return partial state updates
+(only the keys they own), and the graph is consumed with `ainvoke` / `astream`; the nodes
+themselves are sync and run in LangGraph's worker threads.
 
 ## Project structure
 
 ```
 app/
-  config.py · llm.py           # env; Groq wrapper (fallback + retry)
-  main.py                      # FastAPI: /chat, /chat/stream, /feedback, /health
-  db/ · tools/ · agents/       # Supabase; calc/RAG/competitor/memory/conversation tools; 3 specialists
+  config.py · llm.py           # env; Groq wrapper (model fallback, rate-limit wait, bad tool-call retry)
+  main.py                      # FastAPI: /chat, /chat/stream, /feedback, /admin/feedback, /health
+  security.py                  # API keys, admin key, rate limiting
+  observability.py             # logging with request ids, per-request LLM metrics
+  db/ · tools/                 # Supabase (lazy client); calc/RAG/competitor/memory/conversation tools
+  agents/                      # tool_agent.py (shared tool loop) + 3 thin specialists (prompt + tools)
   graders/ · evaluation/       # grounding grader; RAGAS metric library
   graph/                       # state, supervisor (routing), builder
 scripts/                       # ingest_documents/files, crawl_competitors, run_ragas_eval, chunkers

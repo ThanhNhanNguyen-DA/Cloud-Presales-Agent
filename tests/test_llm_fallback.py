@@ -64,7 +64,7 @@ def test_raises_runtime_error_after_all_passes():
     with patch("app.llm.time.sleep"):
         try:
             llm.invoke("hi")
-            assert False, "expected RuntimeError"
+            raise AssertionError("expected RuntimeError")
         except RuntimeError as e:
             assert "rate-limited" in str(e).lower()
     print("✓ raises RuntimeError once the retry budget is exhausted")
@@ -76,11 +76,65 @@ def test_non_rate_limit_error_is_reraised_immediately():
     with patch("app.llm.time.sleep") as sleep:
         try:
             llm.invoke("hi")
-            assert False, "expected ValueError"
+            raise AssertionError("expected ValueError")
         except ValueError:
             pass
     sleep.assert_not_called()  # real bugs are not masked as rate limits
     print("✓ non-rate-limit errors propagate immediately")
+
+
+def test_removed_model_is_skipped_without_waiting():
+    gone = RuntimeError("Error code: 404 - {'error': {'code': 'model_not_found'}}")
+    llm = _make_llm(["old", "new"], rate_limit_max_retries=3)
+    llm._llms = [_Fake(errors=[gone]), _Fake(final="answer")]
+    with patch("app.llm.time.sleep") as sleep:
+        assert llm.invoke("hi") == "answer"
+    sleep.assert_not_called()
+
+
+def test_all_models_removed_raises_clear_error():
+    gone = RuntimeError("The model `x` does not exist or you do not have access to it.")
+    llm = _make_llm(["a", "b"], rate_limit_max_retries=3)
+    llm._llms = [_Fake(errors=[gone]), _Fake(errors=[gone])]
+    with patch("app.llm.time.sleep") as sleep:
+        try:
+            llm.invoke("hi")
+            raise AssertionError("expected RuntimeError")
+        except RuntimeError as e:
+            assert "GROQ_MODELS" in str(e)
+    sleep.assert_not_called()
+
+
+BAD_TOOL_CALL = RuntimeError("Error code: 400 - {'error': {'code': 'tool_use_failed', "
+                             "'message': 'tool call validation failed: ...'}}")
+
+
+def test_invalid_tool_call_is_regenerated_on_same_model():
+    llm = _make_llm(["m1", "m2"])
+    first, second = _Fake(errors=[BAD_TOOL_CALL], final="fixed"), _Fake(final="unused")
+    llm._llms = [first, second]
+    assert llm.invoke("hi") == "fixed"
+    assert first.calls == 2 and second.calls == 0
+
+
+def test_repeated_invalid_tool_calls_fall_back_to_next_model():
+    llm = _make_llm(["m1", "m2"])
+    llm._llms = [_Fake(errors=[BAD_TOOL_CALL, BAD_TOOL_CALL]), _Fake(final="from m2")]
+    with patch("app.llm.time.sleep") as sleep:
+        assert llm.invoke("hi") == "from m2"
+    sleep.assert_not_called()
+
+
+def test_all_models_with_invalid_tool_calls_raise():
+    llm = _make_llm(["m1", "m2"], rate_limit_max_retries=3)
+    llm._llms = [_Fake(errors=[BAD_TOOL_CALL] * 2), _Fake(errors=[BAD_TOOL_CALL] * 2)]
+    with patch("app.llm.time.sleep") as sleep:
+        try:
+            llm.invoke("hi")
+            raise AssertionError("expected RuntimeError")
+        except RuntimeError as e:
+            assert "invalid tool calls" in str(e)
+    sleep.assert_not_called()
 
 
 if __name__ == "__main__":

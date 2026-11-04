@@ -9,8 +9,8 @@ from app.db.supabase_client import supabase
 
 @tool
 def find_competitor_mapping(
-    competitor_name: str = None,
-    competitor_service_name: str = None
+    competitor_name: str | None = None,
+    competitor_service_name: str | None = None
 ) -> str:
     """
     Finds the local service equivalent to a competitor's service (AWS, Azure, GCP).

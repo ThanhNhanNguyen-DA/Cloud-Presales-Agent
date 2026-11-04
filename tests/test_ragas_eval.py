@@ -10,18 +10,16 @@ from unittest.mock import MagicMock, patch
 from app.evaluation import metrics
 
 
-def test_evaluate_answer_async_returns_reference_free_trio():
-    """The live evaluator returns the 3 reference-free metrics, delegating to the primitives."""
-    with patch.object(metrics, "context_precision", return_value=0.4) as m_cp, \
-         patch.object(metrics, "faithfulness", return_value=0.8) as m_fth, \
+def test_evaluate_answer_async_returns_live_pair():
+    """Live scoring returns the two cheap metrics (one Groq call + one local embedding)."""
+    with patch.object(metrics, "faithfulness", return_value=0.8) as m_fth, \
          patch.object(metrics, "answer_relevancy", return_value=0.6) as m_rel:
         result = asyncio.run(metrics.evaluate_answer_async("q", "a", "ctx"))
 
-    assert result == {"context_precision": 0.4, "faithfulness": 0.8, "answer_relevancy": 0.6}
-    m_cp.assert_called_once_with("q", "ctx")
+    assert result == {"faithfulness": 0.8, "answer_relevancy": 0.6}
     m_fth.assert_called_once_with("a", "ctx")
     m_rel.assert_called_once_with("q", "a")
-    print("✓ evaluate_answer_async returns the reference-free trio")
+    print("✓ evaluate_answer_async returns the live pair (faithfulness + answer_relevancy)")
 
 
 def test_llm_judged_metrics_parse_the_score():
