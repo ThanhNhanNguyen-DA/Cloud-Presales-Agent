@@ -149,7 +149,7 @@ def retrieve_past_experiences(
         for exp in response.data or []:
             if exp.get("is_positive") or not exp.get("user_correction"):
                 continue
-            if exp.get("review_status", "approved") != "approved":
+            if exp.get("review_status") != "approved":
                 continue
             cases.append(
                 f"Case {len(cases) + 1}:\n"

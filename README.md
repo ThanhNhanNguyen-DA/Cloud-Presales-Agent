@@ -74,7 +74,15 @@ Text is vectorised by **Qwen3-Embedding-0.6B**, truncated via Matryoshka to **51
 
 ### Retrieval pipeline
 
-`question → embed_query (Qwen "query" prompt) → vector search, top 15 → cross-encoder rerank (BAAI/bge-reranker-v2-m3, fp16) → keep score ≥ 0.1 → top 4 with sources`
+`question → vector candidates (Qwen query prompt, top 15) + keyword candidates (top 15) → RRF fusion (up to 30) → cross-encoder rerank → relevance cutoff → top 4 distinct passages with sources`
+
+Keyword retrieval requires `sql/migrations/004_hybrid_search.sql` after migration 003;
+until then the tools disclose that they are using vector-only retrieval. The existing
+`RERANK_MIN_SCORE=0.1` is a provisional relevance cutoff, not a probability of correctness.
+Answers cover the supported parts and identify missing facts. See the
+[retrieval evaluation and calibration workflow](docs/retrieval-quality.md), including
+reviewed negative queries and a separate validation split. The table below records
+the earlier experiments, not a benchmark of the new hybrid path.
 
 The LLM only chooses the query and an optional category/provider; counts and thresholds are fixed.
 `search_cloud_documents` searches **our** docs and excludes crawled competitor pages;
@@ -98,7 +106,7 @@ run, the tools fall back to the old RPC signature and filter in Python.
 
 Two live checks on every answer, plus an offline batch.
 
-**Live 1 — Grounding Grader (gate).** After a specialist produces an answer and *before it is shown to the user*, a separate LLM call cross-checks the answer against the raw tool/RAG output (each tool call is recorded with its arguments and result, and the grader also sees the user's question): numbers (cost, time, vCPU, RAM, IOPS, storage, SLA %), service names, certifications and SLA terms. It replies with JSON `{"verdict", "issues"}`. On a FAIL the **same specialist** runs once more with the issues in its prompt (routing and memory recall are not repeated, and the retry is graded against its own tool calls only); if it still fails, the answer is delivered with a clear ⚠️ warning — **never a silently wrong number**. If the grader itself can't run or answers unparseably, the answer gets a "could not verify" warning instead of looping. Answers with no tool data (general chat, clarifying questions) auto-pass. See [`app/graders/self_rag_grader.py`](app/graders/self_rag_grader.py).
+**Live 1 — Grounding Grader (gate).** After a specialist produces an answer and *before it is shown to the user*, a separate LLM call cross-checks the answer against the raw tool/RAG output (each tool call is recorded with its arguments and result, and the grader also sees the user's question): numbers (cost, time, vCPU, RAM, IOPS, storage, SLA %), service names, certifications and SLA terms. It replies with JSON `{"verdict", "issues"}`. On a FAIL the **same specialist** runs once more with the issues in its prompt (routing and memory recall are not repeated, and the retry is graded against its own tool calls only); if it still fails, the answer is delivered with a clear ⚠️ warning — **never a silently wrong number**. If the grader itself can't run or answers unparseably, the answer gets a "could not verify" warning instead of looping. General chat skips grounding; specialist answers without tool data remain unverified. Specialist text is published only after grading, with any warning included; progress events remain live. See [`app/graders/self_rag_grader.py`](app/graders/self_rag_grader.py).
 
 **Live 2 — RAGAS scorecard.** Right *after* the answer is produced (so it never delays time-to-first-token), the two lightest **reference-free** metrics — Faithfulness (one judge call) and Answer Relevancy (local embeddings) — are scored (Context Precision stays in the offline batch) and returned with the answer (`ragas` field on `/chat`, a `ragas` SSE event on `/chat/stream`) and shown as a scorecard under the reply in the UI.
 
@@ -154,6 +162,12 @@ python -m streamlit run ui/streamlit_app.py --server.address 127.0.0.1 --server.
 Open the chat UI at **http://localhost:8501**, API docs at **http://localhost:8000/docs**,
 and the liveness check at **http://localhost:8000/health**. `scripts/dev.sh` uses
 `.venv/bin/python` directly, so Conda and shell activation are not required.
+
+**Chat UI** (Vietnamese): chat on the left, a live **"Nhật ký hệ thống"** (activity log) on the right that
+explains each step in plain language — how the question was understood, which tool or data source is
+being used, the automatic number check (✅ / ⚠️), the quality score and the total time. The wording lives
+in `ui/activity_log.py`; the backend adds the facts to each `progress` SSE event (`app/progress.py`).
+The sidebar shows whether the backend is online and offers example questions.
 
 Quick check:
 ```bash

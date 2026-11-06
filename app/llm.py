@@ -20,6 +20,7 @@ vectorisation stays on the local Qwen model (see app/tools/embedding_tool.py).
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -47,6 +48,33 @@ def parse_model_spec(spec: str) -> tuple[str, str]:
     if sep and provider in PROVIDERS:
         return provider, model
     return "groq", spec
+
+
+def flatten_tool_history(messages: Any) -> Any:
+    """
+    Rewrite tool-call turns as plain text, for providers that can't replay them.
+
+    Gemini 3 (OpenAI-compatible endpoint) rejects any earlier function call that lacks its
+    `thought_signature` — and langchain-openai doesn't keep that signature, so even Gemini's
+    own tool calls fail on the next turn (and Groq's always do when Gemini is a fallback).
+    The model still sees what was called and what came back; it can call tools again.
+    """
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    if not isinstance(messages, list):
+        return messages
+    out = []
+    for m in messages:
+        if isinstance(m, AIMessage) and m.tool_calls:
+            calls = "; ".join(f"{tc['name']}({json.dumps(tc.get('args') or {}, ensure_ascii=False)})"
+                              for tc in m.tool_calls)
+            text = m.content if isinstance(m.content, str) else ""
+            out.append(AIMessage(content=f"{text}\n[Called tools: {calls}]".strip()))
+        elif isinstance(m, ToolMessage):
+            out.append(HumanMessage(content=f"[Tool result]\n{m.content}"))
+        else:
+            out.append(m)
+    return out
 
 
 def _build_chat_model(spec: str, *, groq_api_key: str | None, temperature: float, **kwargs: Any) -> Any:
@@ -222,6 +250,8 @@ class FallbackChatLLM:
     @staticmethod
     def _timed_invoke(llm: Any, model_name: str, input: Any, config: Any, kwargs: dict) -> Any:
         """One model call; logs latency + token usage and adds them to the request metrics."""
+        if parse_model_spec(model_name)[0] == "gemini":
+            input = flatten_tool_history(input)
         started = time.perf_counter()
         response = llm.invoke(input, config=config, **kwargs)
         seconds = time.perf_counter() - started

@@ -42,6 +42,7 @@ from app.agents.tool_agent import message_text
 from app.config import validate_config
 from app.graph.builder import build_graph
 from app.observability import current_metrics, setup_logging, start_request
+from app.progress import describe_step
 from app.tools.memory_tools import list_feedback, review_feedback, store_feedback
 from app.tools.embedding_tool import get_embedding_model
 from app.tools.reranker import get_reranker, rerank_enabled
@@ -223,12 +224,15 @@ def _sse(event: dict) -> str:
 @app.post("/chat/stream")
 async def chat_stream(request: ChatRequest, caller: str = Depends(security.chat_caller)):
     """
-    Stream the answer token-by-token via SSE, plus progress and timing events.
+    Stream progress via SSE. General text streams immediately; specialist text is
+    published after grading, with any verification warning included.
 
     Event types (one JSON object per `data:` line):
-      - {"type":"progress","node":...}   after each graph node completes
+      - {"type":"progress","node":...,"detail":{...}}   after each graph node completes;
+                                         `detail` = plain facts for the UI log (app/progress.py);
+                                         node "tool_call" = a tool is starting ({"tool", "agent"})
       - {"type":"ttft","seconds":...}    at the first answer token (time-to-first-token)
-      - {"type":"token","text":...}      each answer token as it is generated
+      - {"type":"token","text":...}      general tokens, or the checked specialist answer
       - {"type":"reset"}                 discard the tokens shown so far: a NEW answer message
                                          starts (the grader asked for a retry, or the agent
                                          wrote text before calling a tool)
@@ -250,6 +254,7 @@ async def chat_stream(request: ChatRequest, caller: str = Depends(security.chat_
         final_response = None
         raw_output = None
         current_message = None  # identifies the LLM message whose tokens are on screen
+        grader_runs = 0
 
         try:
             state = await asyncio.to_thread(_initial_state, request.query, session_id)
@@ -259,7 +264,9 @@ async def chat_stream(request: ChatRequest, caller: str = Depends(security.chat_
                 mode, payload = item
                 if mode == "updates":
                     for node_name, node_state in payload.items():
-                        yield _sse({"type": "progress", "node": node_name})
+                        grader_runs += node_name == "grader"
+                        detail = describe_step(node_name, node_state, raw_output, attempt=grader_runs or 1)
+                        yield _sse({"type": "progress", "node": node_name, "detail": detail})
                         if isinstance(node_state, dict):
                             # Key presence, not truthiness: a retry legitimately resets
                             # raw_tool_output, and the grader may rewrite final_response.
@@ -270,7 +277,18 @@ async def chat_stream(request: ChatRequest, caller: str = Depends(security.chat_
                                 raw_output = node_state["raw_tool_output"]
                 else:  # mode == "messages"
                     chunk, meta = payload
-                    if meta.get("langgraph_node") not in ANSWER_NODES:
+                    node = meta.get("langgraph_node")
+                    if node not in ANSWER_NODES:
+                        continue
+                    # Announce a tool as soon as the model starts calling it (the agent's own
+                    # progress event only arrives when the whole node has finished).
+                    for call in getattr(chunk, "tool_call_chunks", None) or []:
+                        if call.get("name"):
+                            yield _sse({"type": "progress", "node": "tool_call",
+                                        "detail": {"tool": call["name"], "agent": node}})
+                    # Specialist drafts may still fail the grader. Keep progress/tool
+                    # events live, but publish only their authoritative final response.
+                    if node != "general":
                         continue
                     text = message_text(chunk)
                     if not text:
@@ -287,6 +305,11 @@ async def chat_stream(request: ChatRequest, caller: str = Depends(security.chat_
             logger.exception("Graph failed while streaming: %s", exc)
             yield _sse({"type": "error", "message": "The assistant failed to answer. Please try again."})
             return
+
+        if route in {"calculator", "document", "competitor"} and final_response:
+            ttft = time.perf_counter() - t0
+            yield _sse({"type": "ttft", "seconds": round(ttft, 3)})
+            yield _sse({"type": "token", "text": final_response})
 
         # Persist the conversation turn so a fast follow-up sees it.
         await asyncio.to_thread(_persist_turn, session_id, request.query, final_response, route)

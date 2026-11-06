@@ -29,6 +29,9 @@ Tools — pick by competitor:
   ALWAYS cite the page URL and the crawl date, say prices are public list prices (VAT and discounts may
   differ), and NEVER present a competitor's figures as ours.
 If the tools return nothing, say plainly that there is no data yet and suggest confirming with the technical team.
+For a partially supported comparison, answer the supported parts with their sources and explicitly
+identify missing facts for each provider. Do not fill gaps from another provider's data. Relevance
+scores are not probabilities of correctness; disclose when relevance checking was disabled.
 
 Answer in the SAME language as the user's question. Lead with the key point in bold (e.g. **AWS S3 → Object
 Storage**, or **Bizfly Cloud Server: từ 116.820 đ/tháng**), then the similarities/differences, migration
