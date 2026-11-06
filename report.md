@@ -1,30 +1,35 @@
 # Báo cáo sửa lỗi và nâng cấp: Cloud Presales Agent
 
-**Thời gian:** 03/11/2026 – 05/11/2026
+**Thời gian:** 03/11/2026 – 06/11/2026
 **Phạm vi:**
 - **Đợt 1** (ngày 1 → 4 của lộ trình): sửa bug, bảo mật, dọn codebase.
 - **Đợt 2:** kiểm tra bảo mật trên DB thật, audit dữ liệu, cào dữ liệu đối thủ, đánh giá truy xuất và reranker, chọn model điều phối, cải thiện agent. Chi tiết ở [phần Đợt 2](#đợt-2-05112026-bảo-mật-dữ-liệu-rag-và-điều-phối).
+- **Đợt 3:** giao diện tiếng Việt, nhật ký tiến trình và sửa vòng gọi tool qua Gemini.
+- **Đợt 4:** hybrid retrieval, kiểm soát bằng chứng, bảo vệ streaming trước grading, đánh giá đường truy xuất thực tế và công cụ hiệu chỉnh ngưỡng.
 
 **Trạng thái:**
 - Đợt 1 **đã commit** (`4555523`, `6b5dfab`).
-- Đợt 2 **chưa commit:** 16 file code sửa, 8 file mới. (`report.md` đang bị `.gitignore` bỏ qua theo chỉnh sửa của bạn.)
+- Các cập nhật Đợt 3–4 hiện có trong working tree; chưa tạo commit mới trong Đợt 4.
+- **Code và kiểm thử local đã cập nhật; DB thật chưa được áp dụng migration 003/004 trong Đợt 4. Chưa chốt ngưỡng relevance mới.**
 
 ## Tóm tắt
 
 | | Trước | Sau |
 |---|---|---|
 | App chạy được với Groq | ❌ Model Llama đã bị Groq gỡ, `/chat` lỗi 100% | ✅ Agent: `gpt-oss-120b` → `gpt-oss-20b` → Gemini; supervisor: `qwen3.8-27b` |
-| Số test / kết quả | 59 test (không chạy được trên môi trường cũ) | **188 test, đều qua** (165 sau đợt 1) |
-| Thời gian chạy test | ~34 giây | ~3,5 giây |
+| Số test / kết quả | 59 test (không chạy được trên môi trường cũ) | **240 test, đều qua** ở lần kiểm tra implementation cuối Đợt 4 |
+| Thời gian chạy test | ~34 giây | **11,84 giây / 240 test** ở Đợt 4 |
 | Import `app.main` | ~17 giây | ~2,6 giây |
 | Test chạm vào DB thật | Có: mỗi lần chạy ghi correction giả vào DB | Không: bị chặn trong `tests/conftest.py` |
 | Xác thực API | Không có, CORS `*` | API key, key admin riêng, giới hạn tần suất, CORS theo cấu hình |
 | Linter (ruff: F, B, E9, PLE, UP) | 20 lỗi | 0 |
 | Log | `print` rải rác | `logging` có request id, số token và độ trễ |
-| Truy xuất tài liệu (Hit@3 / Hit@1) | 0,17 / 0,10 qua index ivfflat | ~0,93 / 0,87 với HNSW, prompt `query` và reranker *(cần chạy migration 003)* |
+| Truy xuất tài liệu (Hit@3 / Hit@1, thí nghiệm Đợt 2) | 0,17 / 0,10 qua index ivfflat | ~0,93 / 0,87 với exact-vector, prompt `query` và reranker; hiệu quả HNSW trên DB cần đo lại sau migration 003 |
 | Dữ liệu đối thủ trong RAG | 0 | **1361 chunk** từ FPT, VNPT, Bizfly, VNG (có bảng giá) |
 | Route của supervisor | 0,94 (gpt-oss-120b, prompt cũ) | **1,00** (qwen3.8-27b, prompt mới), 0,35 giây |
 | Nhà cung cấp LLM | Chỉ Groq | Groq, Gemini, HF router; cấu hình chuỗi model theo vai trò |
+
+Các số đo import, linter, route và bảng retrieval Đợt 2 được giữ theo thời điểm kiểm tra cũ. Số đo retrieval mới ngày 06/11, phạm vi đối chứng và trạng thái triển khai nằm ở Đợt 4 cuối báo cáo; không so trực tiếp các metric khác k hoặc khác đường chạy.
 
 Thống kê đợt 1: 35 file sửa (+1277 / −571 dòng), cộng 12 file hoặc thư mục mới.
 
@@ -299,3 +304,167 @@ Thư viện mới: `langchain-openai` (để gọi Gemini và HF qua endpoint t�
 4. **Bổ sung tài liệu SLA, Security và Compliance thật** của sản phẩm.
 5. **Kiểm tra lại token Hugging Face** (đang lỗi 401).
 6. *(Tùy chọn)* Cào Viettel IDC và Viettel Cloud bằng trình duyệt headless (Playwright).
+
+---
+
+# Đợt 3 (06/11/2026): Giao diện và nhật ký hệ thống
+
+## Giao diện Streamlit
+- **Bố cục rộng, toàn bộ bằng tiếng Việt:**
+  - Khung chat bên trái.
+  - Khung **🧾 Nhật ký hệ thống** bên phải, có thanh cuộn riêng; câu hỏi đang xử lý ở trên cùng, các câu cũ được thu gọn.
+- **Sidebar:**
+  - Đèn trạng thái hệ thống (🟢 / 🔴).
+  - 5 câu hỏi mẫu, bấm là gửi ngay.
+  - Nút "Cuộc trò chuyện mới".
+  - Hướng dẫn đọc nhật ký.
+- **Dưới mỗi câu trả lời:**
+  - Nhãn loại yêu cầu (🧮 Tính toán / 📚 Tài liệu / 🆚 Đối thủ / 💬 Trò chuyện) và thời gian xử lý.
+  - Điểm chất lượng dạng % ("Bám sát dữ liệu", "Đúng trọng tâm"); câu trò chuyện chung không hiển thị điểm.
+  - Nút góp ý 👍 / 👎.
+- Lỗi được báo bằng lời dễ hiểu, không hiện mã lỗi kỹ thuật.
+
+## Nhật ký hệ thống: người không rành kỹ thuật cũng đọc được
+Ví dụ thật:
+```
++0,0s  📨 Đã nhận câu hỏi
++5,2s  🧭 Đã hiểu yêu cầu: Tính toán chi phí / cấu hình
++6,0s  🔧 Đang dùng: công cụ ước tính cấu hình máy chủ
++6,4s  ✍️ Đang soạn câu trả lời…
++7,6s  ✅ Đã kiểm tra: số liệu khớp với dữ liệu gốc
++9,9s  📊 Chấm điểm chất lượng: bám sát dữ liệu 29%, đúng trọng tâm 76%
++9,9s  🏁 Hoàn tất sau 9,9 giây
+```
+Các tình huống khác cũng được ghi rõ:
+- ⚠️ "Phát hiện số liệu chưa khớp — hệ thống tự soạn lại".
+- 🔎 "Không tìm thấy dữ liệu phù hợp".
+- ❓ "Chưa đủ thông tin — sẽ hỏi lại bạn".
+- 📝 "Áp dụng góp ý đã được duyệt".
+
+**Backend:**
+- Mỗi event `progress` của `/chat/stream` giờ kèm `detail` gồm route, các tool đã dùng, có tìm thấy dữ liệu không, và kết quả của grader (`app/progress.py`).
+- Có thêm event `tool_call` được gửi ngay khi model bắt đầu gọi tool, nên thứ tự các bước trong nhật ký là đúng.
+
+## Bug phát hiện khi chạy thật
+- **Gemini không chạy được vòng gọi tool nhiều bước** (lỗi 400 `missing thought_signature`). Điều này đúng cả khi Gemini làm model dự phòng giữa chừng một vòng do Groq bắt đầu, lẫn khi Gemini tự chạy một mình.
+  - Nguyên nhân: `langchain-openai` không giữ lại chữ ký mà Gemini 3 yêu cầu.
+  - Benchmark trước đó chỉ thử một bước gọi tool nên không phát hiện ra.
+  - **Đã sửa:** wrapper chuyển phần lịch sử gọi tool thành văn bản trước khi gửi cho Gemini. Đã kiểm tra thật: Gemini tiếp nối được vòng gọi tool của Groq và trả lời đúng.
+
+## Kiểm chứng
+- **210 test đều qua**, linter sạch. Có thêm `tests/test_ui.py`, chạy giao diện bằng Streamlit `AppTest` với backend giả, và `tests/test_progress.py`.
+- Đã chạy giao diện với backend thật (Groq + Supabase) cho 5 câu hỏi: tính toán, đối thủ, trò chuyện chung. Streamlit khởi động bình thường ở chế độ headless.
+- **Chưa xem trực tiếp trên trình duyệt** (phiên làm việc không có công cụ trình duyệt). Nên mở http://localhost:8501 để xem bố cục thực tế.
+
+---
+
+# Đợt 4 (06/11/2026): Truy xuất và ngưỡng chấp nhận bằng chứng
+
+## Mục tiêu và chính sách trả lời
+
+Tăng chất lượng truy xuất và kiểm soát khi nào hệ thống có đủ bằng chứng để trả lời. Theo lựa chọn của người dùng: **trả lời phần có nguồn, nêu rõ phần chưa xác minh được**. Không tự điền giá, SLA, chứng chỉ hoặc thông tin của provider khác vào phần còn thiếu.
+
+**Điểm relevance không phải xác suất câu trả lời đúng.** `RERANK_MIN_SCORE=0.1` vẫn là ngưỡng khởi đầu chưa được hiệu chỉnh; đổi thành 0.8 không có nghĩa hệ thống đúng 80%. Các nhận xét phân tách điểm trong Đợt 2 là quan sát của thí nghiệm đó, chưa đủ để xác lập ngưỡng tin cậy chung.
+
+## 1. Pipeline hybrid retrieval
+
+Đã triển khai trong [rag_tools.py](app/tools/rag_tools.py), [ranking.py](app/retrieval/ranking.py) và [reranker.py](app/tools/reranker.py):
+
+```text
+Query
+  ├─ Qwen query embedding → vector search, tối đa 15 ứng viên
+  └─ Keyword search PostgreSQL → tối đa 15 ứng viên
+       ↓
+Kiểm tra scope/nguồn → Reciprocal Rank Fusion (k=60), tối đa 30 ứng viên
+       ↓
+Cross-encoder + sigmoid → lọc relevance → bỏ nội dung trùng → tối đa 4 đoạn có nguồn
+```
+
+- Keyword query giữ tên sản phẩm, chữ viết tắt và số; bỏ một số từ đệm Việt/Anh. RRF hợp nhất thứ hạng thay vì cộng trực tiếp điểm vector và keyword khác thang đo.
+- Kiểm tra lại category/provider sau truy xuất; nhánh tài liệu của mình loại cả `category=Competitor` và metadata đánh dấu `role=competitor`.
+- Loại đoạn không có nguồn, `sample_data`, nội dung rỗng hoặc tài liệu có trạng thái `pending`/`rejected`. Việc metadata không có trạng thái duyệt không được hiểu là nguồn đã được chứng nhận.
+- Bỏ các bản sao nội dung của cùng dịch vụ/provider; giữ `duplicate_ids` để đánh giá không bỏ sót gold id chỉ vì chọn một bản sao khác.
+- Reranker dùng sigmoid rõ ràng và kiểm tra điểm hữu hạn trong [0, 1]. Khi model lỗi hoặc trả điểm không hợp lệ, không đưa ứng viên chưa kiểm tra qua ngưỡng bằng đường fallback.
+- Nếu chủ động tắt reranker, ứng viên được đánh dấu `unscored`. Tool output nêu rõ trạng thái kiểm tra và thông tin còn thiếu.
+- Khi thiếu keyword RPC, vẫn dùng vector và ghi nhận suy giảm. Khi vector lỗi, keyword có thể tiếp tục cung cấp bằng chứng nếu khả dụng. RPC vector cũ cũng được ghi rõ trong coverage note.
+- Chỉ thử chữ ký RPC vector cũ khi lỗi là thiếu function; không lặp lại truy vấn legacy cho mọi lỗi DB.
+
+[Migration 004](sql/migrations/004_hybrid_search.sql) thêm generated `tsvector`, GIN index và RPC `search_cloud_documents_lexical`, dùng cấu hình `simple` và ưu tiên tên dịch vụ. RPC chỉ cấp quyền thực thi cho `service_role`. Migration không xóa hoặc re-embed tài liệu; cần chạy sau migration 003.
+
+## 2. Grounding, feedback và streaming
+
+- **Thiếu tool output không còn tự động PASS với specialist.** Câu trả lời được giữ để hỗ trợ hỏi thêm hoặc trả lời một phần, nhưng có trạng thái chưa kiểm chứng và cảnh báo; không tạo vòng retry vô hạn. General chat vẫn bỏ qua grounding.
+- Grader nhận cả tool output và correction đã duyệt mà agent đã sử dụng, giúp kiểm tra cùng một tập bằng chứng. Prompt yêu cầu chỉ rõ phần không được hỗ trợ; case study không tự chứng minh SLA hoặc giá hợp đồng của sản phẩm mình.
+- Feedback thiếu `review_status` không còn mặc định thành `approved`; chỉ correction có trạng thái `approved` mới được đưa vào memory prompt.
+- **Bản nháp của specialist chờ graph/grader hoàn tất trước khi gửi qua SSE.** Câu trả lời gửi ra bao gồm cảnh báo nếu có. Tiến trình và event gọi tool vẫn hiển thị ngay; general chat vẫn stream trực tiếp. TTFT của specialist vì vậy tính đến lúc có câu trả lời sau grading.
+- Prompt Document/Competitor yêu cầu trả lời phần có nguồn, liệt kê phần chưa xác nhận và không dùng thông tin của provider khác để lấp chỗ thiếu.
+
+File chính: [grader](app/graders/self_rag_grader.py), [memory tools](app/tools/memory_tools.py), [API streaming](app/main.py), [Document Agent](app/agents/document_agent.py), [Competitor Agent](app/agents/competitor_agent.py).
+
+## 3. Kiểm tra corpus và khả năng DB thật
+
+Đã đọc snapshot từ Supabase, không ghi/xóa tài liệu hoặc áp dụng DDL trong đợt này.
+
+| Hạng mục | Kết quả ngày 06/11/2026 |
+|---|---|
+| Tổng `cloud_documents` | **3.359 đoạn** |
+| Feature | 234 |
+| CaseStudy | 1.764 |
+| Competitor | 1.361 |
+| Nhóm riêng SLA / Security / Compliance | Chưa có; cần review nội dung và bổ sung nguồn có thẩm quyền |
+| Gold ids của bộ ranking còn trong snapshot | **60/60** |
+| RPC vector v3, có `exclude_categories`/`filter_provider` | **Chưa khả dụng: `PGRST202`** |
+| RPC keyword mới | **Chưa khả dụng: `PGRST202`** |
+
+DB hiện vẫn dùng chữ ký RPC vector cũ khi truy xuất. Code hybrid đã có, nhưng chưa có bằng chứng hybrid/HNSW chạy đúng trên DB thật sau migration.
+
+## 4. Benchmark retrieval mới và đối chứng
+
+Cùng snapshot corpus và **60 câu phát triển do LLM sinh từ nguồn**: 45 Feature, 15 CaseStudy. Dùng Qwen3-Embedding-0.6B 512 chiều, BGE reranker, sigmoid, ngưỡng 0.1 và tối đa 4 đoạn được chấp nhận. Tập này chưa có câu không có đáp án hoặc nhãn relevance đầy đủ cho mọi ứng viên.
+
+| Đường chạy | Hit@1 | Hit@4 | MRR@4 |
+|---|---:|---:|---:|
+| RPC vector cũ trên DB thật + reranker | **26,67%** | **28,33%** | **0,2708** |
+| Exact-vector local trên cùng snapshot, lọc scope trước lấy ứng viên + cùng reranker | **86,67%** | **98,33%** | **0,9097** |
+
+Khoảng cách cho thấy bước lấy ứng viên/backend và lọc scope là nút thắt lớn; reranker không phục hồi được đoạn chưa vào candidate pool. **Exact-vector là đối chứng local, chưa phải kết quả HNSW hoặc hybrid đã triển khai.** Các số đo không phải tỷ lệ câu trả lời đúng end-to-end và không chứng minh một ngưỡng xác suất tin cậy.
+
+Thời gian trong artifact bao gồm cold start model ở câu đầu, không dùng để cam kết latency ổn định. Benchmark không gọi LLM sinh câu trả lời. Số liệu tổng hợp, cấu hình, hash snapshot và hash bộ câu hỏi nằm trong [baseline_2026-11-06.json](evals/retrieval/baseline_2026-11-06.json).
+
+## 5. Công cụ đánh giá và hiệu chỉnh ngưỡng
+
+- [eval_retrieval_production.py](scripts/eval_retrieval_production.py) dùng chung `retrieve_documents` với ứng dụng: thu điểm candidate để review, rồi áp dụng cutoff/top-k runtime khi tính Hit@1, Hit@k, MRR@k. Ghi method và coverage note khi pipeline suy giảm; không dùng category của gold label để lọc ứng viên.
+- Bộ 60 câu được lưu tại [evals/retrieval/ranking.json](evals/retrieval/ranking.json), thay vì chỉ nằm trong `data/` bị gitignore. Đây là tập phát triển để so thứ hạng, chưa phải bộ đánh giá confidence đã được con người duyệt.
+- [calibrate_retrieval.py](scripts/calibrate_retrieval.py) và [calibration.py](app/retrieval/calibration.py) yêu cầu hai tập `calibration`/`validation` riêng, mỗi tập có câu có đáp án và không có đáp án; mọi candidate cần nhãn relevance rõ ràng. Không tự biến `null` thành nhãn âm; kiểm tra trùng id/câu hỏi giữa hai tập.
+- Chọn ngưỡng trên calibration để giữ coverage lớn nhất trong điều kiện cận dưới Wilson 95% của selective precision đạt mục tiêu. Sau đó kiểm tra nguyên ngưỡng đó trên validation, không dò lại trên validation.
+- Đơn vị thống kê là query. Query chỉ được tính an toàn khi mọi đoạn trả lại đều được review là liên quan. Báo cáo thêm coverage, answerable coverage và tỷ lệ nhận nhầm câu không có đáp án.
+- Khi thiếu bằng chứng thống kê hoặc validation thất bại, `selected_threshold=null`. Script không tự sửa `.env`. Mục tiêu 0.95 là cấu hình đánh giá, **chưa phải kết quả đã đạt**.
+
+Lệnh dùng sau khi DB đã có migration phù hợp:
+
+```bash
+.venv/bin/python -m scripts.eval_retrieval_production --no-hybrid --out /tmp/vector-after-migration.json
+.venv/bin/python -m scripts.eval_retrieval_production --hybrid --out /tmp/hybrid-after-migration.json
+
+# reviewed.json phải được bổ sung/duyệt nhãn và chia tập trước khi chạy:
+.venv/bin/python -m scripts.calibrate_retrieval reviewed.json \
+  --target-precision 0.95 --min-accepted 20 --out /tmp/calibration.json
+```
+
+Cấu hình mới: `HYBRID_SEARCH_ENABLED=true` mặc định; keyword channel cần migration 004. `.env.example` giải thích ngưỡng relevance chưa được hiệu chỉnh và dùng placeholder `service_role` thay cho anon key. Hướng dẫn đầy đủ: [docs/retrieval-quality.md](docs/retrieval-quality.md).
+
+## 6. Kiểm chứng implementation
+
+- Lần chạy cuối trước cập nhật báo cáo: **240 tests pass trong 11,84 giây**.
+- Test chạy với Groq/Supabase/embedding/reranker được mock; xác nhận logic phần mềm, không xác nhận độ đúng AI trên dữ liệu thật.
+- Có thêm [test_retrieval_quality.py](tests/test_retrieval_quality.py), [test_retrieval_calibration.py](tests/test_retrieval_calibration.py), [test_retrieval_eval_production.py](tests/test_retrieval_eval_production.py); cập nhật các test RAG và streaming để kiểm tra không lộ bản nháp trước grading.
+- Đã kiểm tra `compileall` và `git diff --check` thành công. Không dùng kết quả linter của các đợt trước để khẳng định đã lint lại implementation Đợt 4.
+- Hai benchmark retrieval ở mục 4 dùng model local và dữ liệu thật/snapshot; được ghi riêng với kết quả test mock.
+
+## 7. Việc còn lại để hoàn tất trên hệ thống thật
+
+1. **Áp dụng/đối chiếu migration [003](sql/migrations/003_retrieval.sql) rồi [004](sql/migrations/004_hybrid_search.sql)** trên Supabase; xác nhận cả hai RPC khả dụng. Hiệu quả trên DB cần đo lại sau migration, không lấy kết quả exact local làm cam kết.
+2. Chạy lại vector-only và hybrid trên cùng corpus/bộ câu hỏi; kiểm tra coverage note, lỗi, Hit@k/MRR và latency p50/p95 sau warmup.
+3. Bổ sung nguồn chính thức cho SLA, security, compliance và giá; review phạm vi sử dụng case study.
+4. Duyệt câu có đáp án, hard negatives và câu được hỗ trợ một phần; gán nhãn mọi candidate, tách calibration/validation độc lập rồi mới chọn ngưỡng mới.
+5. Đánh giá end-to-end riêng về số liệu, trích dẫn và khả năng trả lời một phần; chưa công bố phần trăm cải thiện hybrid hoặc độ đúng câu trả lời khi chưa đo đủ.

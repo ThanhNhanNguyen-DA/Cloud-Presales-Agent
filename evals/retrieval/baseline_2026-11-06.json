@@ -1,0 +1,58 @@
+{
+  "run_at": "2026-11-06T05:47:28.098353+00:00",
+  "scope": "Development ranking set, not answer correctness. Exact search is an offline control, not deployed hybrid/HNSW.",
+  "corpus": {
+    "rows": 3359,
+    "categories": {
+      "CaseStudy": 1764,
+      "Competitor": 1361,
+      "Feature": 234
+    },
+    "snapshot_sha256": "0ef642a57ceee3c6a6d83b6cf0123560d1e5860113b6f02e4216c1254f450ff9"
+  },
+  "ranking_set": {
+    "path": "evals/retrieval/ranking.json",
+    "queries": 60,
+    "sha256": "d8b763b0af5dfd4ef6c0b04ebb14b7365258571131d25ebb12470ef41b9fdb15",
+    "origin": "Existing source-generated single-gold development set; no unanswerable queries or exhaustive relevance judgments."
+  },
+  "pipeline": {
+    "embedding_model": "Qwen/Qwen3-Embedding-0.6B",
+    "embedding_dim": 512,
+    "rerank_model": "BAAI/bge-reranker-v2-m3",
+    "activation": "sigmoid",
+    "candidates_per_channel": 15,
+    "vector_threshold": 0.3,
+    "hybrid_requested": false,
+    "runtime_cutoff": 0.1
+  },
+  "database_capabilities": {
+    "vector_v3": "PGRST202: unavailable at audit time",
+    "keyword_v4": "PGRST202: unavailable at audit time"
+  },
+  "measurements": {
+    "legacy_vector_rpc_plus_reranker": {
+      "queries": 60,
+      "queries_with_gold": 60,
+      "hit_at_1": 0.26666666666666666,
+      "hit_at_k": 0.2833333333333333,
+      "mrr_at_k": 0.2708333333333333,
+      "mean_seconds": 1.162760904983323
+    },
+    "offline_exact_vector_plus_same_reranker": {
+      "queries": 60,
+      "queries_with_gold": 60,
+      "hit_at_1": 0.8666666666666667,
+      "hit_at_k": 0.9833333333333333,
+      "mrr_at_k": 0.9097222222222222,
+      "mean_seconds": 0.8942901277833547
+    }
+  },
+  "latency_scope": "Includes model cold start on the first query; not a steady-state latency benchmark.",
+  "hybrid_production_benchmark_completed": false,
+  "threshold_calibration_completed": false,
+  "required_next_steps": [
+    "Apply/reconcile migrations 003 and 004 on the database, then rerun the production scorer.",
+    "Review positive and hard-negative queries and all candidate judgments in disjoint calibration/validation splits."
+  ]
+}

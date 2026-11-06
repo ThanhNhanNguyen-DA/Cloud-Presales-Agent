@@ -1,0 +1,482 @@
+[
+  {
+    "id": "feature-001",
+    "question": "RDS for MySQL cho phép tôi thực hiện những thao tác quản lý nào trên Instance?",
+    "gold_id": "d42443a4-2b8a-40b4-88e8-5fc16a21f395",
+    "gold_service": "Dataset - RDS for MySQL Service",
+    "category": "Feature",
+    "source": "Dataset - RDS for MySQL Service.docx"
+  },
+  {
+    "id": "feature-002",
+    "question": "Ngoài việc host máy chủ web, tôi có thể dùng Virtual Private Cloud Service (VPC) cho những mục đích nào khác?",
+    "gold_id": "eeb3a5c2-5296-4d02-82ef-d880fb45d387",
+    "gold_service": "Dataset - Virtual Private Cloud Service",
+    "category": "Feature",
+    "source": "Dataset - Virtual Private Cloud Service.docx"
+  },
+  {
+    "id": "feature-003",
+    "question": "Doanh nghiệp nhỏ nào phù hợp với CMC Cloud DaaS và họ cần bao nhiêu máy VDI, có yêu cầu tích hợp Domain Controller không?",
+    "gold_id": "fa5cf224-19bd-4cf2-8e50-936f54ef059d",
+    "gold_service": "CMC Cloud DaaS",
+    "category": "Feature",
+    "source": "CMC Cloud DaaS.docx"
+  },
+  {
+    "id": "feature-004",
+    "question": "Làm thế nào để tạo một Container mới trong dịch vụ Key Management?",
+    "gold_id": "369ecab8-57eb-447b-a7bd-93365937fcb4",
+    "gold_service": "Dataset - Key Management Service",
+    "category": "Feature",
+    "source": "Dataset - Key Management Service.docx"
+  },
+  {
+    "id": "feature-005",
+    "question": "ELB CMC Cloud có hỗ trợ thêm những header nào vào yêu cầu HTTP khi listener được cấu hình là HTTP hoặc TERMINATED_HTTPS?",
+    "gold_id": "95ea6b95-4d0b-4e68-8bcd-94f891b8f8d5",
+    "gold_service": "CMC Cloud ELB",
+    "category": "Feature",
+    "source": "CMC Cloud ELB.docx"
+  },
+  {
+    "id": "feature-006",
+    "question": "Khi tạo AS Group trong Auto Scaling Service, làm sao để thiết lập số lượng tối đa, tối thiểu và dự kiến của các instance?",
+    "gold_id": "92ff5465-103e-4289-a9ff-7b73153928d6",
+    "gold_service": "Dataset - Auto Scaling Service",
+    "category": "Feature",
+    "source": "Dataset - Auto Scaling Service.docx"
+  },
+  {
+    "id": "feature-007",
+    "question": "Trong dịch vụ Dataset - Elastic GPU Service, tôi nên sử dụng Elastic GPU trong những trường hợp nào?",
+    "gold_id": "cae9d069-dde7-46ee-bea4-48e7693dc840",
+    "gold_service": "Dataset - Elastic GPU Service",
+    "category": "Feature",
+    "source": "Dataset - Elastic GPU Service.docx"
+  },
+  {
+    "id": "feature-008",
+    "question": "Dataset có những Availability Zone nào tại Hà Nội và TP.HCM, và chúng được kết nối như thế nào?",
+    "gold_id": "92941296-2e3a-40d5-a1e0-06e73f0898cb",
+    "gold_service": "Dataset - Availability Zone",
+    "category": "Feature",
+    "source": "Dataset - Availability Zone.docx"
+  },
+  {
+    "id": "feature-009",
+    "question": "Dataset - Terraform Service cung cấp những tính năng nào giúp triển khai nhanh, khôi phục thảm họa và tăng cường bảo mật?",
+    "gold_id": "859cb14b-670b-46f9-b164-64c38193cdb1",
+    "gold_service": "Dataset - Terraform Service",
+    "category": "Feature",
+    "source": "Dataset - Terraform Service.docx"
+  },
+  {
+    "id": "feature-010",
+    "question": "VPC to VPC có những loại kết nối nào và mỗi loại được dùng để kết nối VPC trong cùng khu vực hay các khu vực khác nhau?",
+    "gold_id": "9e9600d6-b941-4874-af1b-5f0fc5297760",
+    "gold_service": "VPC to VPC",
+    "category": "Feature",
+    "source": "VPC to VPC.docx"
+  },
+  {
+    "id": "feature-011",
+    "question": "Khi cấu hình VPN, tôi cần cung cấp những tham số nào để khởi tạo IKE Policy (Phase 1) và ví dụ giá trị cho mỗi tham số là gì?",
+    "gold_id": "6864cffd-e8bd-47ec-ba05-794c01e8fc5d",
+    "gold_service": "VPN",
+    "category": "Feature",
+    "source": "VPN.docx"
+  },
+  {
+    "id": "feature-012",
+    "question": "Cloud Trace Service có thể tích hợp vào các quy trình làm việc hiện tại của doanh nghiệp như thế nào?",
+    "gold_id": "e3b0f845-4144-43d1-8167-aeae9622796b",
+    "gold_service": "Dataset - Cloud Trace Service",
+    "category": "Feature",
+    "source": "Dataset - Cloud Trace Service.docx"
+  },
+  {
+    "id": "feature-013",
+    "question": "Làm thế nào để tạo một PostgreSQL instance trên CMC Cloud RDS bằng Terraform và chọn phiên bản 14.9?",
+    "gold_id": "fd03bc42-0bac-43ec-9637-1977b174b773",
+    "gold_service": "CMC Cloud RDS",
+    "category": "Feature",
+    "source": "CMC Cloud RDS.docx"
+  },
+  {
+    "id": "feature-014",
+    "question": "Trong dịch vụ Cloud Kafka của CMC Cloud, thời gian lưu trữ mặc định của tin nhắn trong một topic là bao lâu?",
+    "gold_id": "b07ed9c9-ea6a-40c5-8046-d7d67334d1e6",
+    "gold_service": "Dataset - Cloud Kafka Service",
+    "category": "Feature",
+    "source": "Dataset - Cloud Kafka Service.docx"
+  },
+  {
+    "id": "feature-015",
+    "question": "Tôi muốn mua một Elastic IP mới trên portal CMC Cloud, cần thực hiện những bước nào và có thể chọn băng thông trong nước và quốc tế như thế nào?",
+    "gold_id": "c229390e-7b31-4a89-a8e6-90b5e52e95d2",
+    "gold_service": "Dataset - Elastic IP Service",
+    "category": "Feature",
+    "source": "Dataset - Elastic IP Service.docx"
+  },
+  {
+    "id": "feature-016",
+    "question": "Khi cấu hình RDS for MySQL bằng Terraform, các tham số như dung lượng ổ đĩa, IP công cộng, chế độ HA và mật khẩu quản trị viên cần được thiết lập như thế nào?",
+    "gold_id": "2e21e468-f1b8-415e-86a1-6888f37a2809",
+    "gold_service": "Dataset - RDS for MySQL Service",
+    "category": "Feature",
+    "source": "Dataset - RDS for MySQL Service.docx"
+  },
+  {
+    "id": "feature-017",
+    "question": "Khi tạo Subnet trong dịch vụ Virtual Public Service, các trường thông tin như Gateway IP, DHCP và Allocation Pools có ý nghĩa gì?",
+    "gold_id": "c50d0ca6-3c1f-44a4-a00b-dc4f08bc5e90",
+    "gold_service": "Dataset - Virtual Private Cloud Service",
+    "category": "Feature",
+    "source": "Dataset - Virtual Private Cloud Service.docx"
+  },
+  {
+    "id": "feature-018",
+    "question": "CMC Cloud DaaS có hỗ trợ truy cập máy tính ảo qua trình duyệt web và tích hợp với Active Directory không?",
+    "gold_id": "6821cde2-cf3e-42ca-a0b5-51bd10642213",
+    "gold_service": "CMC Cloud DaaS",
+    "category": "Feature",
+    "source": "CMC Cloud DaaS.docx"
+  },
+  {
+    "id": "feature-019",
+    "question": "Làm sao để cấu hình tài nguyên secret trong Terraform cho Key Management Service, ví dụ như tạo secret dạng certificate hoặc passphrase?",
+    "gold_id": "dd41b4ae-d32a-4a62-935f-e76df3ec01d5",
+    "gold_service": "Dataset - Key Management Service",
+    "category": "Feature",
+    "source": "Dataset - Key Management Service.docx"
+  },
+  {
+    "id": "feature-020",
+    "question": "Trong phần giám sát hoạt động của CMC Cloud ELB, chỉ số 'rate of warning redispatched requests' trên backend có ý nghĩa gì và khi nào thì hiện tượng này xảy ra?",
+    "gold_id": "688b3764-8329-4d4a-8577-b069b94f19db",
+    "gold_service": "CMC Cloud ELB",
+    "category": "Feature",
+    "source": "CMC Cloud ELB.docx"
+  },
+  {
+    "id": "feature-021",
+    "question": "Làm thế nào để thêm một phiên bản ECS vào Auto Scaling Group khi AS Group đang ở trạng thái Active?",
+    "gold_id": "a20c465b-9545-4b6c-8398-4ecce5d6e069",
+    "gold_service": "Dataset - Auto Scaling Service",
+    "category": "Feature",
+    "source": "Dataset - Auto Scaling Service.docx"
+  },
+  {
+    "id": "feature-022",
+    "question": "Elastic GPU Service của CMC Cloud hỗ trợ những dòng card GPU nào và chúng khác nhau ra sao về bộ nhớ cũng như mục đích sử dụng chính?",
+    "gold_id": "38ff9454-b67b-4477-bfc6-0e22444c358a",
+    "gold_service": "Dataset - Elastic GPU Service",
+    "category": "Feature",
+    "source": "Dataset - Elastic GPU Service.docx"
+  },
+  {
+    "id": "feature-023",
+    "question": "Hiện tại dịch vụ Dataset - Availability Zone có bao nhiêu AZ tại Hà Nội và TP.HCM, và chúng hỗ trợ cấu hình VM tối đa bao nhiêu vCPU?",
+    "gold_id": "fe67803d-1d05-44d3-a1bd-7c7a27f2db83",
+    "gold_service": "Dataset - Availability Zone",
+    "category": "Feature",
+    "source": "Dataset - Availability Zone.docx"
+  },
+  {
+    "id": "feature-024",
+    "question": "Vòng đời của một resource trong Terraform Service bao gồm những giai đoạn nào?",
+    "gold_id": "94c1a3cd-a924-4d03-baee-38bf89a8adfb",
+    "gold_service": "Dataset - Terraform Service",
+    "category": "Feature",
+    "source": "Dataset - Terraform Service.docx"
+  },
+  {
+    "id": "feature-025",
+    "question": "Mình muốn kết nối hai VPC với nhau thì nên dùng VPN hay VPC peering? Có điều kiện gì về region không?",
+    "gold_id": "43b382df-b967-41f8-aa3f-df4efbb68d0c",
+    "gold_service": "VPN",
+    "category": "Feature",
+    "source": "VPN.docx"
+  },
+  {
+    "id": "feature-026",
+    "question": "Cloud Trace Service có cho phép lưu trữ nhật ký truy vết ở đâu và mình có thể truy vấn lại các thao tác từ bao lâu trước không?",
+    "gold_id": "e9508eea-dd42-40c6-b6a8-8bce072fc105",
+    "gold_service": "Dataset - Cloud Trace Service",
+    "category": "Feature",
+    "source": "Dataset - Cloud Trace Service.docx"
+  },
+  {
+    "id": "feature-027",
+    "question": "Với CMC Cloud RDS, khi tôi tăng hoặc giảm cấu hình máy chủ cơ sở dữ liệu, có cần phải khởi động lại máy chủ không?",
+    "gold_id": "5e6a1325-9f73-4b99-9b6a-39a054d1efd6",
+    "gold_service": "CMC Cloud RDS",
+    "category": "Feature",
+    "source": "CMC Cloud RDS.docx"
+  },
+  {
+    "id": "feature-028",
+    "question": "Cloud Kafka Service thường được ứng dụng trong những trường hợp nào để xử lý dữ liệu thời gian thực và quản lý sự kiện?",
+    "gold_id": "66f34b2d-2f86-44fe-b4bb-d0e26f34a9c6",
+    "gold_service": "Dataset - Cloud Kafka Service",
+    "category": "Feature",
+    "source": "Dataset - Cloud Kafka Service.docx"
+  },
+  {
+    "id": "feature-029",
+    "question": "Làm sao để cấu hình Elastic IP trên CMC Cloud bằng Terraform với băng thông trong nước 500Mbps và quốc tế 30Mbps?",
+    "gold_id": "e3a45c01-23d2-4d86-bf76-a04593b145c6",
+    "gold_service": "Dataset - Elastic IP Service",
+    "category": "Feature",
+    "source": "Dataset - Elastic IP Service.docx"
+  },
+  {
+    "id": "feature-030",
+    "question": "Trong dịch vụ RDS for MySQL, tôi có thể thực hiện những thao tác nào để quản lý các bản sao lưu (Backup) và Auto Backup của instance?",
+    "gold_id": "fbeecedd-1d3a-4042-99d5-e96d5336bb76",
+    "gold_service": "Dataset - RDS for MySQL Service",
+    "category": "Feature",
+    "source": "Dataset - RDS for MySQL Service.docx"
+  },
+  {
+    "id": "feature-031",
+    "question": "VPC của CMC Cloud hỗ trợ những tính năng nào về bảo mật và kết nối, và băng thông mặc định qua NAT Gateway là bao nhiêu?",
+    "gold_id": "afa4126a-305f-46bc-b9e2-c040dae54fc0",
+    "gold_service": "Dataset - Virtual Private Cloud Service",
+    "category": "Feature",
+    "source": "Dataset - Virtual Private Cloud Service.docx"
+  },
+  {
+    "id": "feature-032",
+    "question": "Khi sử dụng dịch vụ CMC Cloud DaaS, nhân viên làm việc từ xa có thể truy cập màn hình VDI trên những thiết bị nào và thông qua giao thức gì?",
+    "gold_id": "4783d2bc-8e85-4d74-a92b-c8b98805b39b",
+    "gold_service": "CMC Cloud DaaS",
+    "category": "Feature",
+    "source": "CMC Cloud DaaS.docx"
+  },
+  {
+    "id": "feature-033",
+    "question": "CMC Key Management hỗ trợ quản lý những loại khóa mã hóa nào và chúng thường được dùng cho mục đích gì?",
+    "gold_id": "6997af72-cf77-4c2f-a685-fefcf8ed5abf",
+    "gold_service": "Dataset - Key Management Service",
+    "category": "Feature",
+    "source": "Dataset - Key Management Service.docx"
+  },
+  {
+    "id": "feature-034",
+    "question": "Kích thước small của CMC Cloud ELB hỗ trợ tối đa bao nhiêu kết nối HTTP mỗi giây?",
+    "gold_id": "e511b09f-eb37-42f5-bb80-5c8a0df8afe8",
+    "gold_service": "CMC Cloud ELB",
+    "category": "Feature",
+    "source": "CMC Cloud ELB.docx"
+  },
+  {
+    "id": "feature-035",
+    "question": "Làm sao để xem lại lịch sử các thao tác mở rộng hoặc thu hẹp quy mô (scaling actions) của một AS Group trên console CMC Cloud?",
+    "gold_id": "45e42301-5e54-456e-809e-0a81abaced8c",
+    "gold_service": "Dataset - Auto Scaling Service",
+    "category": "Feature",
+    "source": "Dataset - Auto Scaling Service.docx"
+  },
+  {
+    "id": "feature-036",
+    "question": "Elastic GPU Service phù hợp với những trường hợp sử dụng nào trong lĩnh vực AI, tính toán khoa học và đồ họa?",
+    "gold_id": "1ed616e6-811a-4a21-bfac-8dac724b7a68",
+    "gold_service": "Dataset - Elastic GPU Service",
+    "category": "Feature",
+    "source": "Dataset - Elastic GPU Service.docx"
+  },
+  {
+    "id": "feature-037",
+    "question": "Khi build Terraform provider cho CMC Cloud, mình cần clone những repository nào và phải chỉnh sửa file go.mod như thế nào để trỏ về thư viện gocmcapiv2?",
+    "gold_id": "9a0784ce-3826-419e-8081-0ad0e9b5b26e",
+    "gold_service": "Dataset - Terraform Service",
+    "category": "Feature",
+    "source": "Dataset - Terraform Service.docx"
+  },
+  {
+    "id": "feature-038",
+    "question": "Làm thế nào để khởi tạo IKE Policy (Phase 1) trong dịch vụ VPN?",
+    "gold_id": "80866bbe-f3f0-420b-89de-b780f6e0effc",
+    "gold_service": "VPN",
+    "category": "Feature",
+    "source": "VPN.docx"
+  },
+  {
+    "id": "feature-039",
+    "question": "Cloud Trace Service lưu trữ dữ liệu nhật ký hoạt động trong bao lâu và có thể lọc thông tin theo những tiêu chí nào?",
+    "gold_id": "4c5fa190-0649-41c5-83c0-f2c362f9ff8d",
+    "gold_service": "Dataset - Cloud Trace Service",
+    "category": "Feature",
+    "source": "Dataset - Cloud Trace Service.docx"
+  },
+  {
+    "id": "feature-040",
+    "question": "Khi triển khai CMC Cloud RDS MySQL bằng Terraform, các phiên bản MySQL nào được hỗ trợ và làm sao để chỉ định phiên bản cụ thể trong cấu hình?",
+    "gold_id": "2c7ca267-0c47-4194-9f0a-a7e004793bce",
+    "gold_service": "CMC Cloud RDS",
+    "category": "Feature",
+    "source": "CMC Cloud RDS.docx"
+  },
+  {
+    "id": "feature-041",
+    "question": "Cloud Kafka Service giúp doanh nghiệp giải quyết những vấn đề gì về hạ tầng và vận hành khi xử lý dữ liệu thời gian thực?",
+    "gold_id": "4b4cbcfc-3369-4c79-a4da-939daa7e4948",
+    "gold_service": "Dataset - Cloud Kafka Service",
+    "category": "Feature",
+    "source": "Dataset - Cloud Kafka Service.docx"
+  },
+  {
+    "id": "feature-042",
+    "question": "Elastic IP của CMC Cloud hỗ trợ băng thông quốc tế tối đa bao nhiêu và có tính phí cho phần băng thông miễn phí không?",
+    "gold_id": "0de3a52b-65ec-4e5a-8174-f8398ef2e1ac",
+    "gold_service": "Dataset - Elastic IP Service",
+    "category": "Feature",
+    "source": "Dataset - Elastic IP Service.docx"
+  },
+  {
+    "id": "feature-043",
+    "question": "Làm sao để kiểm tra trạng thái của instance RDS for MySQL sau khi đã tạo bằng Terraform và xác minh thông tin tài nguyên trên Portal?",
+    "gold_id": "6686b5ff-e6ab-4f16-8963-0af5685f658b",
+    "gold_service": "Dataset - RDS for MySQL Service",
+    "category": "Feature",
+    "source": "Dataset - RDS for MySQL Service.docx"
+  },
+  {
+    "id": "feature-044",
+    "question": "Làm sao để tạo VPC và Subnet trên CMC Cloud bằng Terraform, bao gồm cách cấu hình CIDR, gateway và các pool phân bổ IP?",
+    "gold_id": "e92b0f75-fe73-4450-90e8-adbdba040ca6",
+    "gold_service": "Dataset - Virtual Private Cloud Service",
+    "category": "Feature",
+    "source": "Dataset - Virtual Private Cloud Service.docx"
+  },
+  {
+    "id": "feature-045",
+    "question": "Key Management Service có thể được sử dụng cho những trường hợp nào?",
+    "gold_id": "0912c343-be18-498d-931b-70975c59c147",
+    "gold_service": "Dataset - Key Management Service",
+    "category": "Feature",
+    "source": "Dataset - Key Management Service.docx"
+  },
+  {
+    "id": "casestudy-001",
+    "question": "JERA đã sử dụng sản phẩm Azure OpenAI như thế nào trong dự án Digital Power Plant (DPP) để cải thiện quy trình làm việc và giải quyết vấn đề trong ngành năng lượng?",
+    "gold_id": "df6a3790-217d-4f5e-a875-e26802a4909c",
+    "gold_service": "JERA Co., Inc.",
+    "category": "CaseStudy",
+    "source": "04_Energy_&_Resources.pdf"
+  },
+  {
+    "id": "casestudy-002",
+    "question": "Acentra Health đã mất bao lâu để chuyển từ ý tưởng sang triển khai đầy đủ giải pháp AI của Microsoft?",
+    "gold_id": "ec02dbf2-46a9-4497-8535-f7206ca79900",
+    "gold_service": "ACENTRA HEALTH",
+    "category": "CaseStudy",
+    "source": "07_Healthcare.pdf"
+  },
+  {
+    "id": "casestudy-003",
+    "question": "D-ID hỗ trợ các doanh nghiệp biến đổi những loại dữ liệu đầu vào nào để tạo ra các avatar tương tác siêu thực, và công nghệ này đang được ứng dụng trong những lĩnh vực nào?",
+    "gold_id": "6c9571c5-ad1a-4cf7-9228-ac32ce3dca3f",
+    "gold_service": "D ID",
+    "category": "CaseStudy",
+    "source": "09_Media.pdf"
+  },
+  {
+    "id": "casestudy-004",
+    "question": "Theo trường hợp nghiên cứu của Fidal, giải pháp Fidal IA đã giúp giảm thời gian nghiên cứu pháp lý trung bình bao nhiêu phần trăm và dựa trên quy mô dữ liệu như thế nào?",
+    "gold_id": "d4fb037d-2bf1-4caa-b1bb-ce20565ba345",
+    "gold_service": "Fidal",
+    "category": "CaseStudy",
+    "source": "05_Financial_Services.pdf"
+  },
+  {
+    "id": "casestudy-005",
+    "question": "What GenAI tools does IMD provide for its learners, and on which platform is the ESG educational game hosted?",
+    "gold_id": "59d7d99d-80b3-4dc1-882f-6d5357532e9e",
+    "gold_service": "International Institute for Management Development IMD",
+    "category": "CaseStudy",
+    "source": "03_Education.pdf"
+  },
+  {
+    "id": "casestudy-006",
+    "question": "Siemens Healthineers đã sử dụng các công nghệ AI và Azure nào tại trung tâm HEP để phân tích dữ liệu và tối ưu hóa quy trình sản xuất?",
+    "gold_id": "6c881042-a72a-433d-8968-9e8cc83e2575",
+    "gold_service": "Siemens Healthineers",
+    "category": "CaseStudy",
+    "source": "08_Manufacturing.pdf"
+  },
+  {
+    "id": "casestudy-007",
+    "question": "How did the City of Buenos Aires implement Boti with ChatGPT to ensure accurate, secure, and politically sensitive responses while maintaining the local 'voseo' tone and inclusive language?",
+    "gold_id": "a2830247-77a0-48ab-8443-ce543e051f7d",
+    "gold_service": "Government of the City of Buenos Aires",
+    "category": "CaseStudy",
+    "source": "06_Government.pdf"
+  },
+  {
+    "id": "casestudy-008",
+    "question": "Airbus đã chọn nền tảng nào của Microsoft để triển khai các giải pháp AI nội bộ nhằm đáp ứng yêu cầu bảo mật nghiêm ngặt của khách hàng quân sự và chính phủ?",
+    "gold_id": "d4900c15-2282-4a5a-9201-8705ddeed2e4",
+    "gold_service": "Airbus",
+    "category": "CaseStudy",
+    "source": "02_Defense.pdf"
+  },
+  {
+    "id": "casestudy-009",
+    "question": "PETRONAS đã triển khai Azure Cognitive Search và chatbot như thế nào để giúp nhân viên truy cập dữ liệu nhanh hơn và cải thiện độ chính xác của kết quả tìm kiếm?",
+    "gold_id": "c1de84b3-28ca-49d8-b310-348f483ddc53",
+    "gold_service": "PETRONAS",
+    "category": "CaseStudy",
+    "source": "04_Energy_&_Resources.pdf"
+  },
+  {
+    "id": "casestudy-010",
+    "question": "Pierre Fabre đã sử dụng Azure OpenAI Service để xây dựng nền tảng nào và giải pháp này mang lại lợi ích cụ thể gì cho đội ngũ dược sĩ của họ?",
+    "gold_id": "842d4ff3-4400-45cd-88f6-a9edde652d2a",
+    "gold_service": "Pierre Fabre",
+    "category": "CaseStudy",
+    "source": "07_Healthcare.pdf"
+  },
+  {
+    "id": "casestudy-011",
+    "question": "Trong dự án Art Basel, các dịch vụ Azure nào đã được sử dụng để xử lý và phục vụ dữ liệu đa dạng từ hàng trăm phòng trưng bày cho ứng dụng AI?",
+    "gold_id": "dab72b99-f32d-41f2-98fd-ac85790516a8",
+    "gold_service": "Art Basel",
+    "category": "CaseStudy",
+    "source": "09_Media.pdf"
+  },
+  {
+    "id": "casestudy-012",
+    "question": "Virgin Money đã triển khai trợ lý AI Redi bằng Microsoft Copilot Studio và đạt được tỷ lệ hoàn thành hành trình và mức độ tương tác khách hàng như thế nào?",
+    "gold_id": "02d17be7-c35b-4f4a-bfb1-c4c76cc58b36",
+    "gold_service": "Virgin Money",
+    "category": "CaseStudy",
+    "source": "05_Financial_Services.pdf"
+  },
+  {
+    "id": "casestudy-013",
+    "question": "Trường Đại học Nam Florida (USF) đã triển khai Copilot for Microsoft 365 như thế nào và phản ứng của giảng viên, nhân viên ra sao khi họ bắt đầu sử dụng công cụ này?",
+    "gold_id": "d4b7190a-89ea-4e6b-b9dc-8e8b8a93d4c0",
+    "gold_service": "University of South Florida",
+    "category": "CaseStudy",
+    "source": "03_Education.pdf"
+  },
+  {
+    "id": "casestudy-014",
+    "question": "HARTING đánh giá thế nào về vai trò của đối tác công nghệ như Microsoft và Siemens trong việc hỗ trợ các chu kỳ phát triển sản phẩm ngắn hơn và ứng dụng AI?",
+    "gold_id": "30d1c0ad-495d-4aff-a5ef-023838bcdf22",
+    "gold_service": "HARTING",
+    "category": "CaseStudy",
+    "source": "08_Manufacturing.pdf"
+  },
+  {
+    "id": "casestudy-015",
+    "question": "How did the Hellenic Cadastre solution help streamline land purchase processes in Greece?",
+    "gold_id": "11d04d57-a2aa-4546-9bb6-42629a162ef8",
+    "gold_service": "Hellenic Cadastre",
+    "category": "CaseStudy",
+    "source": "06_Government.pdf"
+  }
+]

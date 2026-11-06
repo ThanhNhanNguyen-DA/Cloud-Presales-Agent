@@ -36,3 +36,31 @@ def test_gemini_models_use_the_openai_compatible_endpoint(monkeypatch):
     kwargs = chat_openai.call_args.kwargs
     assert kwargs["base_url"].startswith("https://generativelanguage.googleapis.com")
     assert kwargs["model"] == "gemini-3.5-flash-lite" and kwargs["reasoning_effort"] == "low"
+
+
+def test_flatten_tool_history_for_gemini():
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+
+    from app.llm import flatten_tool_history
+    msgs = [SystemMessage("s"), HumanMessage("q"),
+            AIMessage(content="", tool_calls=[{"name": "calc", "args": {"gb": 10}, "id": "fc_1"}]),
+            ToolMessage(content="16.7 min", tool_call_id="fc_1")]
+    flat = flatten_tool_history(msgs)
+    assert flat[:2] == msgs[:2]
+    assert isinstance(flat[2], AIMessage) and not flat[2].tool_calls
+    assert flat[2].content == '[Called tools: calc({"gb": 10})]'
+    assert isinstance(flat[3], HumanMessage) and "16.7 min" in flat[3].content
+    assert flatten_tool_history("plain prompt") == "plain prompt"
+
+
+def test_only_gemini_calls_are_flattened():
+    from langchain_core.messages import AIMessage, ToolMessage
+    with patch("app.llm.ChatGroq"):
+        llm = FallbackChatLLM(["openai/gpt-oss-120b"], api_key="k")
+    seen = []
+    fake = type("F", (), {"invoke": lambda self, inp, **kw: seen.append(inp) or AIMessage(content="ok")})()
+    msgs = [AIMessage(content="", tool_calls=[{"name": "t", "args": {}, "id": "1"}]),
+            ToolMessage(content="r", tool_call_id="1")]
+    llm._timed_invoke(fake, "openai/gpt-oss-120b", msgs, None, {})
+    llm._timed_invoke(fake, "gemini:gemini-3.5-flash-lite", msgs, None, {})
+    assert seen[0][0].tool_calls and not seen[1][0].tool_calls

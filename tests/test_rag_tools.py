@@ -14,7 +14,8 @@ def _doc(i, score=0.8, category="Feature", provider=None, content=None):
 
 
 @pytest.fixture
-def rpc():
+def rpc(monkeypatch):
+    monkeypatch.setenv("HYBRID_SEARCH_ENABLED", "false")
     with patch.object(rag_tools, "embed_query", return_value=[0.0] * 512), \
          patch.object(rag_tools, "supabase") as sb:
         yield sb
@@ -37,6 +38,7 @@ def test_falls_back_to_old_rpc_signature_and_filters_in_python(rpc):
         out = rag_tools.search_cloud_documents.invoke({"query": "q"})
     assert "exclude_categories" not in rpc.rpc.call_args.args[1]
     assert "svc2" not in out and "svc1" in out and "svc3" in out
+    assert "Legacy vector search in use" in out
 
 
 def test_reranker_reorders_and_drops_irrelevant(rpc):
@@ -57,10 +59,11 @@ def test_nothing_relevant_says_so(rpc):
         assert "No relevant documents" in rag_tools.search_cloud_documents.invoke({"query": "weather?"})
 
 
-def test_reranker_failure_falls_back_to_vector_order():
+def test_reranker_failure_does_not_bypass_relevance_check():
     docs = [_doc(1), _doc(2)]
     with patch.object(reranker, "get_reranker", side_effect=RuntimeError("CUDA OOM")):
-        assert reranker.rerank("q", docs, top_k=1) == [docs[0]]
+        result = reranker.rank_documents("q", docs, top_k=1)
+        assert result.documents == [] and result.status == "unavailable"
 
 
 def test_competitor_search_filters_category_and_provider(rpc):
