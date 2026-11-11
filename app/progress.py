@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 
-from app.graders.self_rag_grader import UNVERIFIED_WARNING
+from app.graders.self_rag_grader import UNVERIFIED_MARKERS
 
 SPECIALISTS = {"calculator", "document", "competitor"}
 _TOOL_CALL = re.compile(r"^(\w+)\(")
@@ -59,13 +59,13 @@ def describe_step(node: str, update: dict, raw_before: str | None, attempt: int 
     if node == "general":
         return {"tools": []}
     if node == "grader":
+        final = update.get("final_response") or ""
+        if any(marker in final for marker in UNVERIFIED_MARKERS):
+            return {"verdict": "unverified", "attempt": attempt}
         if not (raw_before or "").strip():
             return {"verdict": "skipped", "attempt": attempt}
         if update.get("grading_passed"):
             return {"verdict": "pass", "attempt": attempt}
-        final = update.get("final_response") or ""
-        if UNVERIFIED_WARNING.strip() in final:
-            return {"verdict": "unverified", "attempt": attempt}
         if update.get("grader_feedback"):
             return {"verdict": "retry", "attempt": attempt}
         return {"verdict": "warn", "attempt": attempt}

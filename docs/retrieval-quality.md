@@ -7,14 +7,22 @@ giá/SLA/chứng chỉ còn thiếu; không chuyển số liệu từ một prov
 
 1. Vector search: Qwen query embedding, tối đa 15 ứng viên.
 2. Keyword search: PostgreSQL full-text `simple`, ưu tiên tên dịch vụ, tối đa 15 ứng viên.
+   Kênh này dành cho **định danh chính xác** (giá như `116.820`, tên sản phẩm, chữ viết tắt).
+   Truy vấn thử AND trước (`"770.000" "bizfly"`), không có kết quả mới nới thành OR.
+   Câu không có định danh dùng cụm 2 âm tiết tiếng Việt (`"cân bằng"`), không dùng âm
+   tiết đơn. Lý do: `ts_rank_cd` không có IDF, một từ phổ biến ("bizfly", "đ/tháng") sẽ
+   lấn át từ hiếm nếu ghép OR.
+   Trước mọi kênh, chữ viết tắt đã biết được mở rộng (`KMS` → `KMS (Key Management Service)`),
+   bảng `ALIASES` trong `app/retrieval/ranking.py`.
 3. Reciprocal Rank Fusion (k=60) hợp nhất tối đa 30 ứng viên.
 4. Kiểm tra lại category/provider, bỏ nguồn trống, `sample_data`, tài liệu pending/rejected.
 5. Cross-encoder với sigmoid, lọc `RERANK_MIN_SCORE`, bỏ nội dung lặp, lấy tối đa 4 đoạn.
 6. Agent trả lời theo nguồn; grader kiểm tra cả tool output và correction đã duyệt.
 
 Keyword và vector có thể bổ sung ứng viên cho nhau. RRF hợp nhất **thứ hạng**, không
-cộng hai loại điểm có thang đo khác nhau. Số ứng viên nhiều hơn có thể tăng latency;
-cần đo lại trên cùng tập câu hỏi trước khi kết luận cải thiện.
+cộng hai loại điểm có thang đo khác nhau. Lưu ý: vì tối đa 15 + 15 ứng viên và giới hạn
+hợp nhất là 30, reranker chấm toàn bộ nên thứ tự RRF chỉ có tác dụng khi tắt reranker;
+giá trị thực của hybrid là **bổ sung ứng viên** mà vector bỏ sót.
 
 Khi keyword RPC chưa tồn tại, hệ thống dùng vector và ghi rõ trạng thái suy giảm
 trong tool output. Khi reranker lỗi hoặc trả điểm không hợp lệ, các đoạn chưa được
@@ -106,7 +114,7 @@ Schema một mẫu (các mẫu nằm trong `queries`):
 ```
 
 ```bash
-python -m scripts.calibrate_retrieval reviewed.json \
+python -m scripts.calibrate_retrieval reviewed.json --criterion all-relevant \
   --target-precision 0.95 --min-accepted 20 --out /tmp/calibration.json
 ```
 
@@ -116,6 +124,7 @@ dưới Wilson 95% của selective precision đạt mục tiêu. Sau đó kiểm
 
 - Một query được chấp nhận khi có ít nhất một đoạn vượt ngưỡng trong top-k.
 - Query chỉ được tính an toàn khi **mọi đoạn được trả lại** đều được review là liên quan.
+  (Tiêu chí `--criterion all-relevant`, rất chặt; xem tiêu chí mặc định bên dưới.)
 - `selective_precision`: tỷ lệ query an toàn trong các query được chấp nhận.
 - `coverage`: tỷ lệ query được chấp nhận; `answerable_coverage` đo riêng câu có đáp án.
 - `unanswerable_acceptance_rate`: tỷ lệ câu không có đáp án vẫn nhận được đoạn vượt ngưỡng.
@@ -126,6 +135,25 @@ dưới Wilson 95% của selective precision đạt mục tiêu. Sau đó kiểm
 dữ liệu hoặc validation thất bại, `selected_threshold=null`, không có setting được
 khuyến nghị. Script không sửa `.env`. Khi validation đạt, áp dụng setting với đúng
 corpus/model/filter/candidate count đã đo; thay pipeline cần hiệu chỉnh lại.
+
+### Tiêu chí mặc định: abstention
+
+`all-relevant` gần như không đạt được trong thực tế: chặn dưới Wilson ≥ 0,95 cần ít nhất
+**73** câu được chấp nhận không sai câu nào (110 nếu sai 1), mỗi câu cả 4 đoạn đều liên quan,
+và phải gán nhãn mọi ứng viên. Tiêu chí mặc định đo đúng điều người dùng gặp:
+
+- **Câu có đáp án:** `answerable_hit_rate`, tỷ lệ có ít nhất 1 đoạn liên quan được chọn (tối đa hóa).
+- **Câu không có đáp án:** `false_accept_rate`, tỷ lệ vẫn nhận được đoạn vượt ngưỡng; chặn trên
+  Wilson 95% phải ≤ `--max-false-accept` (mặc định 0,05).
+- Đoạn phụ chỉ liên quan một phần **không** bị tính là thất bại (grader kiểm tra câu trả lời).
+- Chỉ cần gán nhãn **top-k** ứng viên theo điểm; các đoạn thấp hơn để `null`.
+- Báo cáo ghi rõ `unanswerable_needed_per_split`: với 5% cần ≥ 73 câu không có đáp án mỗi tập
+  (10% cần ≥ 35).
+
+```bash
+python -m scripts.calibrate_retrieval reviewed.json --out /tmp/calibration.json            # abstention
+python -m scripts.calibrate_retrieval reviewed.json --criterion all-relevant --out /tmp/strict.json
+```
 
 Đây là phép đo việc chọn bằng chứng, **không bảo đảm tỷ lệ đúng của câu trả lời**.
 Cần bộ end-to-end có human review để đo thêm độ đúng của số liệu, trích dẫn và khả
@@ -151,3 +179,23 @@ RPC trả `PGRST202` tại thời điểm kiểm tra, nên đường DB thật c
 đã triển khai. Chưa áp dụng migration hoặc hiệu chỉnh ngưỡng trên DB thật trong đợt này.
 Không suy ra độ đúng end-to-end từ Hit@k. Xem aggregate và hash snapshot/bộ câu hỏi ở
 [`baseline_2026-11-06.json`](../evals/retrieval/baseline_2026-11-06.json).
+
+
+## Sau migration 003 + 004 (06/11/2026, DB thật)
+
+| Đường chạy | 60 câu ranking: Hit@1 / Hit@4 / MRR@4 | 29 câu keyword-stress: Hit@1 / Hit@4 | s/câu (stress) |
+|---|---|---|---|
+| Trước migration (RPC cũ) | 26,7% / 28,3% / 0,271 | – | – |
+| Vector-only (HNSW) | 86,7% / 98,3% / 0,910 | 90% / 93% | 0,57 |
+| Hybrid (keyword định danh, AND→OR, alias) | 86,7% / 96,7% / 0,906 | **97% / 100%** | 0,77 |
+
+- HNSW trên DB cho đúng kết quả của exact-vector local: index ivfflat cũ là nguyên nhân.
+- Trên bộ 60 câu (do LLM viết lại từ chính đoạn đáp án), hybrid không tạo khác biệt; lần
+  "thua" duy nhất là JERA, khi hai đoạn đúng cùng điểm ~1,0 đổi chỗ nhau ở hạng 4/5.
+- Trên `evals/retrieval/lexical_stress.json` (viết tắt, tên sản phẩm, gõ không dấu, giá chính
+  xác), hybrid tìm được các câu hỏi theo giá mà vector không tìm được (`116.820`, `770.000đ`).
+- Bảng alias sửa câu "KMS là gì?" (tài liệu chỉ ghi "Key Management Service").
+
+```bash
+python -m scripts.eval_lexical_stress
+```

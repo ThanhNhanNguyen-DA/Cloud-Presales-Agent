@@ -147,3 +147,23 @@ def test_backend_error_is_shown_in_plain_words():
     last = at.session_state["chat_history"][-1]
     assert last["is_error"] and "chưa trả lời được" in last["content"]
     assert at.session_state["activity"][-1]["entries"][-1]["level"] == "error"
+
+
+def test_answer_table_line_breaks_render_and_original_answer_is_retained():
+    answer = "| Dịch vụ | Mô tả |\n| --- | --- |\n| RDS | **Nhanh**<br />• Sao lưu |"
+    events = _sse({"type": "token", "text": answer},
+                  {"type": "final", "route": "document", "response": answer, "total": 1.0})
+    with patch("requests.get", return_value=MagicMock(ok=True)), \
+         patch("requests.post", _fake_post(events)):
+        at = _app().run()
+        at.chat_input[0].set_value("Giải thích <br> và mô tả RDS").run()
+        assert not at.exception
+        # Re-render history as well as the just-completed response.
+        at.run()
+    assert not at.exception
+    assert at.session_state["chat_history"][-1]["content"] == answer
+    rendered = [m for m in at.markdown if "| RDS |" in m.value]
+    assert rendered and all(m.proto.allow_html for m in rendered)
+    assert all("**Nhanh**<br>• Sao lưu" in m.value for m in rendered)
+    question = next(m for m in at.markdown if m.value == "Giải thích <br> và mô tả RDS")
+    assert question.proto.allow_html is False

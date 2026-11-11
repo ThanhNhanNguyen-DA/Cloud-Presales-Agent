@@ -135,3 +135,106 @@ def test_missing_review_status_never_enters_memory_prompt():
             "is_positive": False, "user_query": "SLA?", "system_response": "old",
             "user_correction": "unreviewed correction"}])
         assert memory_tools.retrieve_past_experiences("SLA?") == ""
+
+
+# --------------------------------------------------------------------------- Vietnamese lexical query
+from app.retrieval.ranking import lexical_query as _lexical  # noqa: E402
+
+
+def test_lexical_query_uses_vietnamese_phrases_not_single_syllables():
+    q = _lexical("Những thuật toán cân bằng tải nào được hỗ trợ?")
+    assert '"cân bằng"' in q and '"bằng tải"' in q
+    assert '"hỗ"' not in q and '"trợ"' not in q and '"hỗ trợ"' not in q   # common, meaningless
+
+
+def test_identifiers_take_over_the_keyword_channel():
+    # ts_rank_cd has no IDF: a common phrase next to a rare price would drown it.
+    assert _lexical("Gói nào giá 116.820 đ/tháng?") == '"116.820"'
+    assert _lexical("ELB hỗ trợ những thuật toán cân bằng tải nào?") == '"elb"'
+
+
+def test_lexical_query_keeps_product_names_and_dotted_numbers():
+    assert _lexical("Gói Micro 116.820 đ/tháng") == '"micro" OR "116.820"'
+    assert _lexical("SLA uptime của Object Storage") == '"sla" OR "uptime" OR "object" OR "storage"'
+
+
+def test_lexical_query_phrases_never_cross_stop_words():
+    assert '"tải của"' not in _lexical("cân bằng tải của hệ thống")
+
+
+def test_lexical_query_falls_back_to_lone_syllables():
+    assert _lexical("Cân") == '"cân"'
+    assert _lexical("là gì của") == ""
+
+
+def test_expand_aliases():
+    from app.retrieval.ranking import expand_aliases
+    assert expand_aliases("KMS là gì?") == "KMS (Key Management Service) là gì?"
+    assert expand_aliases("Key Management Service KMS") == "Key Management Service KMS"   # already spelled out
+    assert expand_aliases("SMS marketing") == "SMS marketing"                              # whole words only
+    assert expand_aliases("cấu hình elb") == "cấu hình elb (Elastic Load Balancer)"
+
+
+def test_lexical_and_mode():
+    assert _lexical("Gói 770.000đ của Bizfly", mode="and") == '"770.000" "bizfly"'
+    assert _lexical("Gói 770.000đ của Bizfly") == '"770.000" OR "bizfly"'
+
+
+def test_keyword_channel_tries_and_then_or():
+    from unittest.mock import MagicMock, patch
+
+    from app.tools import rag_tools, reranker
+    calls = []
+
+    def fake_rpc(name, params):
+        if name == "search_cloud_documents_lexical":
+            calls.append(params["query_text"])
+            data = [] if len(calls) == 1 else [{"id": "k1", "service_name": "s", "category": "Feature",
+                                                "content": "c", "metadata": {"source": "x"}}]
+        else:
+            data = []
+        return MagicMock(execute=MagicMock(return_value=MagicMock(data=data)))
+
+    with patch.object(rag_tools, "embed_query", return_value=[0.0] * 512), \
+         patch.object(rag_tools, "supabase") as sb, \
+         patch.object(reranker, "rerank_enabled", return_value=False):
+        sb.rpc.side_effect = fake_rpc
+        result = rag_tools.retrieve_documents("Gói 770.000đ Bizfly", hybrid=True)
+    assert calls == ['"770.000" "bizfly"', '"770.000" OR "bizfly"']
+    assert [d["id"] for d in result.documents] == ["k1"]
+
+
+# --------------------------------------------------------------------------- clarifications & warning language
+def test_clarifying_question_without_tools_gets_no_warning():
+    with patch.object(grader, "grader_llm") as judge:
+        result = grader.grounding_grader_node({
+            "route": "calculator", "user_query": "Backup mất bao lâu?",
+            "final_response": "Bạn cho mình biết dung lượng dữ liệu và băng thông nhé?"})
+    assert result == {"grading_passed": True, "grader_feedback": None}
+    judge.invoke.assert_not_called()
+
+
+@pytest.mark.parametrize("answer", [
+    "Thời gian backup khoảng 16,7 phút. Bạn cần thêm gì không?",   # has a figure
+    "Có, dịch vụ hỗ trợ mã hóa dữ liệu.",                           # a claim, not a question
+])
+def test_unsupported_claims_without_tools_still_warn(answer):
+    result = grader.grounding_grader_node({"route": "document", "user_query": "Có mã hóa không?",
+                                           "final_response": answer})
+    assert result["final_response"].endswith(grader.UNVERIFIED_WARNING_VI)
+
+
+def test_warning_follows_the_question_language():
+    vi = grader.grounding_grader_node({"route": "document", "user_query": "SLA là bao nhiêu?",
+                                       "final_response": "SLA 100%"})
+    en = grader.grounding_grader_node({"route": "document", "user_query": "What is the SLA?",
+                                       "final_response": "SLA 100%"})
+    assert vi["final_response"].endswith(grader.UNVERIFIED_WARNING_VI)
+    assert en["final_response"].endswith(grader.UNVERIFIED_WARNING)
+
+
+def test_activity_log_reports_unverified_even_without_tool_data():
+    from app.progress import describe_step
+    update = {"grading_passed": False, "final_response": "SLA 100%" + grader.UNVERIFIED_WARNING_VI}
+    assert describe_step("grader", update, None)["verdict"] == "unverified"
+    assert describe_step("grader", {"grading_passed": True, "grader_feedback": None}, None)["verdict"] == "skipped"

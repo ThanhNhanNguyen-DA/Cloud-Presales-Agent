@@ -24,7 +24,7 @@ from langchain_core.tools import tool
 
 from app.db.supabase_client import supabase
 from app.tools.embedding_tool import embed_query
-from app.retrieval.ranking import eligible_documents, lexical_query, reciprocal_rank_fusion
+from app.retrieval.ranking import eligible_documents, expand_aliases, lexical_query, reciprocal_rank_fusion
 from app.tools.reranker import RERANK_MIN_SCORE, rank_documents
 
 logger = logging.getLogger(__name__)
@@ -90,6 +90,7 @@ def retrieve_documents(query: str, *, category: str | None = None,
                        min_score: float = RERANK_MIN_SCORE) -> RetrievalResult:
     """The shared production/evaluation path: scoped candidates -> RRF -> rerank."""
     notes = []
+    query = expand_aliases(query)  # "KMS" -> "KMS (Key Management Service)" for every stage
     try:
         vector = _vector_search(query, category=category, exclude=exclude, provider=provider)
         if getattr(vector, "legacy", False):
@@ -104,10 +105,15 @@ def retrieve_documents(query: str, *, category: str | None = None,
     terms = lexical_query(query)
     if enabled and terms:
         try:
-            keyword = supabase.rpc("search_cloud_documents_lexical", {
-                "query_text": terms, "match_count": CANDIDATES, "filter_category": category,
-                "exclude_categories": exclude, "filter_provider": provider,
-            }).execute().data or []
+            # AND first (all identifiers present — precise), then OR if nothing matches:
+            # without IDF, a common term like "bizfly" otherwise drowns a rare price.
+            for text in dict.fromkeys((lexical_query(query, mode="and"), terms)):
+                keyword = supabase.rpc("search_cloud_documents_lexical", {
+                    "query_text": text, "match_count": CANDIDATES, "filter_category": category,
+                    "exclude_categories": exclude, "filter_provider": provider,
+                }).execute().data or []
+                if keyword:
+                    break
             method = "hybrid"
         except Exception as exc:  # noqa: BLE001 - migration 004 is optional during rollout
             logger.warning("Keyword retrieval unavailable: %s", exc)

@@ -40,7 +40,7 @@ def evaluate_queries(samples: list[dict], *, hybrid: bool = True, progress: bool
         if result.rerank_status != "scored":
             raise RuntimeError("Scored evaluation requires an available, enabled reranker.")
         gold = sample.get("gold_ids") or ([sample["gold_id"]] if sample.get("gold_id") else [])
-        def is_gold(document):
+        def is_gold(document, gold=gold):
             return bool(set([document.get("id"), *document.get("duplicate_ids", [])]) & set(gold))
         accepted = [d for d in result.documents if d["rerank_score"] >= RERANK_MIN_SCORE][:TOP_K]
         ranks.append(next((i for i, d in enumerate(accepted, 1) if is_gold(d)), None))

@@ -1,0 +1,234 @@
+[
+  {
+    "id": "lex-01",
+    "scope": "own",
+    "question": "KMS là gì?",
+    "expect": [
+      "Key Management"
+    ]
+  },
+  {
+    "id": "lex-02",
+    "scope": "own",
+    "question": "ELB listener",
+    "expect": [
+      "ELB"
+    ]
+  },
+  {
+    "id": "lex-03",
+    "scope": "own",
+    "question": "Cách tạo AS Group",
+    "expect": [
+      "Auto Scaling"
+    ]
+  },
+  {
+    "id": "lex-04",
+    "scope": "own",
+    "question": "EIP gắn vào máy chủ thế nào?",
+    "expect": [
+      "Elastic IP"
+    ]
+  },
+  {
+    "id": "lex-05",
+    "scope": "own",
+    "question": "VPC peering",
+    "expect": [
+      "VPC to VPC",
+      "Virtual Private Cloud"
+    ]
+  },
+  {
+    "id": "lex-06",
+    "scope": "own",
+    "question": "RDS MySQL backup tự động",
+    "expect": [
+      "RDS"
+    ]
+  },
+  {
+    "id": "lex-07",
+    "scope": "own",
+    "question": "Terraform provider",
+    "expect": [
+      "Terraform"
+    ]
+  },
+  {
+    "id": "lex-08",
+    "scope": "own",
+    "question": "Cloud Trace ghi lại những gì?",
+    "expect": [
+      "Cloud Trace"
+    ]
+  },
+  {
+    "id": "lex-09",
+    "scope": "own",
+    "question": "GPU cho AI training",
+    "expect": [
+      "Elastic GPU"
+    ]
+  },
+  {
+    "id": "lex-10",
+    "scope": "own",
+    "question": "Kafka topic partition",
+    "expect": [
+      "Kafka"
+    ]
+  },
+  {
+    "id": "lex-11",
+    "scope": "own",
+    "question": "DaaS VDI",
+    "expect": [
+      "DaaS"
+    ]
+  },
+  {
+    "id": "lex-12",
+    "scope": "own",
+    "question": "VPN site-to-site IPsec",
+    "expect": [
+      "VPN"
+    ]
+  },
+  {
+    "id": "lex-13",
+    "scope": "own",
+    "question": "AZ ở Hà Nội",
+    "expect": [
+      "Availability Zone"
+    ]
+  },
+  {
+    "id": "lex-14",
+    "scope": "own",
+    "question": "ELB round robin",
+    "expect": [
+      "ELB"
+    ]
+  },
+  {
+    "id": "lex-15",
+    "scope": "competitor",
+    "question": "Bizfly Cloud Server bảng giá",
+    "expect": [
+      "bizfly - Bảng giá thuê Cloud Server",
+      "bizfly - Cloud Server"
+    ]
+  },
+  {
+    "id": "lex-16",
+    "scope": "competitor",
+    "question": "VNPT ElastiCache Redis",
+    "expect": [
+      "ElastiCache"
+    ]
+  },
+  {
+    "id": "lex-17",
+    "scope": "competitor",
+    "question": "FPT ArgoCD",
+    "expect": [
+      "ArgoCD"
+    ]
+  },
+  {
+    "id": "lex-18",
+    "scope": "competitor",
+    "question": "VNPT WAAP",
+    "expect": [
+      "WAAP"
+    ]
+  },
+  {
+    "id": "lex-19",
+    "scope": "competitor",
+    "question": "RabbitMQ của VNPT",
+    "expect": [
+      "RabbitMQ"
+    ]
+  },
+  {
+    "id": "lex-20",
+    "scope": "competitor",
+    "question": "FPT Spot Instances",
+    "expect": [
+      "Spot"
+    ]
+  },
+  {
+    "id": "lex-21",
+    "scope": "competitor",
+    "question": "Bizfly VoD",
+    "expect": [
+      "VoD"
+    ]
+  },
+  {
+    "id": "lex-22",
+    "scope": "competitor",
+    "question": "VNPT CodeDeploy",
+    "expect": [
+      "CodeDeploy"
+    ]
+  },
+  {
+    "id": "lex-23",
+    "scope": "competitor",
+    "question": "FPT MongoDB",
+    "expect": [
+      "MongoDB"
+    ]
+  },
+  {
+    "id": "lex-24",
+    "scope": "competitor",
+    "question": "OpenSearch VNPT",
+    "expect": [
+      "OpenSearch"
+    ]
+  },
+  {
+    "id": "lex-25",
+    "scope": "own",
+    "question": "can bang tai ELB",
+    "expect": [
+      "ELB"
+    ]
+  },
+  {
+    "id": "lex-26",
+    "scope": "competitor",
+    "question": "gia cloud server bizfly",
+    "expect": [
+      "bizfly - Bảng giá thuê Cloud Server",
+      "bizfly - Cloud Server"
+    ]
+  },
+  {
+    "id": "lex-27",
+    "scope": "competitor",
+    "question": "Gói nào giá 116.820 đ/tháng?",
+    "expect": [],
+    "expect_content": "116.820"
+  },
+  {
+    "id": "lex-28",
+    "scope": "competitor",
+    "question": "Gói 770.000đ một tháng của Bizfly có cấu hình gì?",
+    "expect": [],
+    "expect_content": "770.000"
+  },
+  {
+    "id": "lex-29",
+    "scope": "competitor",
+    "question": "Gói Small 194.640 đ",
+    "expect": [],
+    "expect_content": "194.640"
+  }
+]

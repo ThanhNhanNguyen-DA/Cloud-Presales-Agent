@@ -20,6 +20,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from activity_log import entries_for_event, format_entry, route_badge
+from answer_rendering import format_answer_markdown
 
 load_dotenv()
 
@@ -181,7 +182,10 @@ with chat_col:
 
     for idx, msg in enumerate(ss.chat_history):
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+            if msg["role"] == "assistant":
+                st.markdown(format_answer_markdown(msg["content"]), unsafe_allow_html=True)
+            else:
+                st.markdown(msg["content"])
             if msg["role"] != "assistant":
                 continue
             if not msg.get("is_error"):
@@ -254,7 +258,7 @@ if question:
                                 render_log(live)
                             if etype == "token":
                                 shown += event["text"]
-                                answer_box.markdown(shown + "▌")
+                                answer_box.markdown(format_answer_markdown(shown + "▌"), unsafe_allow_html=True)
                             elif etype == "reset":
                                 shown = ""
                                 answer_box.markdown("🔁 _Đang soạn lại câu trả lời cho chính xác hơn…_")
@@ -270,7 +274,8 @@ if question:
                 live["entries"].append({"t": round(time.perf_counter() - t0, 1), "icon": "❌",
                                         "text": meta["error"], "level": "error"})
             # The final text is authoritative: the fact-checker may have added a warning.
-            answer_box.markdown(meta.get("error") or meta.get("final") or shown)
+            answer_box.markdown(format_answer_markdown(meta.get("error") or meta.get("final") or shown),
+                                unsafe_allow_html=True)
 
     ss.activity.append(live)
     ss.chat_history.append({

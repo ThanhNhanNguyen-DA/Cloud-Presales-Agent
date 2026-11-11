@@ -67,6 +67,36 @@ UNVERIFIED_WARNING = (
     "\n\n⚠️ Note: The automatic fact check could not run for this answer. "
     "Please double-check the figures before sending this to the customer."
 )
+# Same warnings for Vietnamese questions (the answer is in the user's language).
+GRADING_WARNING_VI = (
+    "\n\n⚠️ Lưu ý: Hệ thống phát hiện có thể có chênh lệch giữa câu trả lời này và dữ liệu gốc. "
+    "Vui lòng kiểm tra lại bằng công cụ tính toán / tài liệu trước khi gửi cho khách hàng."
+)
+UNVERIFIED_WARNING_VI = (
+    "\n\n⚠️ Lưu ý: Hệ thống chưa tự kiểm chứng được câu trả lời này. "
+    "Vui lòng kiểm tra lại các số liệu trước khi gửi cho khách hàng."
+)
+UNVERIFIED_MARKERS = (UNVERIFIED_WARNING.strip(), UNVERIFIED_WARNING_VI.strip())
+
+_VIETNAMESE = re.compile(r"[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]")
+
+
+def _warning(kind: str, question: str) -> str:
+    """The grading/unverified warning in the language of the user's question."""
+    vietnamese = bool(_VIETNAMESE.search((question or "").lower()))
+    if kind == "grading":
+        return GRADING_WARNING_VI if vietnamese else GRADING_WARNING
+    return UNVERIFIED_WARNING_VI if vietnamese else UNVERIFIED_WARNING
+
+
+def is_clarification(answer: str) -> bool:
+    """
+    A specialist that asks the user for missing inputs instead of answering: no figures to
+    check and phrased as a question ("Bạn cho mình biết dung lượng dữ liệu?"). Warning on
+    it would be a false alarm — and alarms users learn to ignore stop protecting them.
+    """
+    text = (answer or "").strip()
+    return bool(text) and "?" in text and not re.search(r"\d", text)
 
 _VERDICT_WORD = re.compile(r"\b(PASS|FAIL)\b")
 
@@ -114,12 +144,13 @@ def grounding_grader_node(state: GraphState) -> dict:
     retry_count = state.get("retry_count") or 0
 
     if not raw_output.strip():
-        if state.get("route") in {"calculator", "document", "competitor"}:
-            # A missing tool call is not evidence of correctness. Preserve useful
-            # clarifications/partial answers, but never label them as verified.
+        if state.get("route") in {"calculator", "document", "competitor"} and not is_clarification(final_answer):
+            # A missing tool call is not evidence of correctness. Preserve useful partial
+            # answers, but never label them as verified. (A pure clarifying question has
+            # no claims to verify and passes through without a warning.)
             return {"grading_passed": False, "grader_feedback": None,
                     "retry_count": MAX_GRADING_ATTEMPTS,
-                    "final_response": final_answer + UNVERIFIED_WARNING}
+                    "final_response": final_answer + _warning("unverified", state.get("user_query"))}
         return {"grading_passed": True, "grader_feedback": None}
 
     experience = state.get("retrieved_experience") or ""
@@ -143,7 +174,7 @@ def grounding_grader_node(state: GraphState) -> dict:
             "grading_passed": False,
             "grader_feedback": None,
             "retry_count": MAX_GRADING_ATTEMPTS,
-            "final_response": final_answer + UNVERIFIED_WARNING,
+            "final_response": final_answer + _warning("unverified", state.get("user_query")),
         }
 
     logger.info("verdict=%s attempt=%d issues=%d", "PASS" if passed else "FAIL",
@@ -157,7 +188,7 @@ def grounding_grader_node(state: GraphState) -> dict:
             "grading_passed": False,
             "retry_count": attempts,
             "grader_feedback": None,
-            "final_response": final_answer + GRADING_WARNING,
+            "final_response": final_answer + _warning("grading", state.get("user_query")),
         }
     return {
         "grading_passed": False,

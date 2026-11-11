@@ -468,3 +468,47 @@ Cấu hình mới: `HYBRID_SEARCH_ENABLED=true` mặc định; keyword channel c
 3. Bổ sung nguồn chính thức cho SLA, security, compliance và giá; review phạm vi sử dụng case study.
 4. Duyệt câu có đáp án, hard negatives và câu được hỗ trợ một phần; gán nhãn mọi candidate, tách calibration/validation độc lập rồi mới chọn ngưỡng mới.
 5. Đánh giá end-to-end riêng về số liệu, trích dẫn và khả năng trả lời một phần; chưa công bố phần trăm cải thiện hybrid hoặc độ đúng câu trả lời khi chưa đo đủ.
+
+---
+
+# Đợt 5 (06/11/2026): Sau migration 003 + 004 và các sửa chữa truy xuất
+
+## Kết quả trên DB thật
+| Đường chạy | 60 câu ranking: Hit@1 / Hit@4 / MRR@4 | 29 câu keyword-stress: Hit@1 / Hit@4 |
+|---|---|---|
+| Trước migration (RPC cũ) | 26,7% / 28,3% / 0,271 | – |
+| Vector-only (HNSW) | **86,7% / 98,3% / 0,910** | 90% / 93% |
+| Hybrid (sau khi sửa) | 86,7% / 96,7% / 0,906 | **97% / 100%** |
+
+- **Migration 003 khắc phục nút thắt chính:** HNSW trên DB cho đúng kết quả của exact-vector local.
+- **Trên bộ 60 câu, hybrid không tạo khác biệt.** Bộ này do LLM viết lại từ chính đoạn đáp án; lần "thua" duy nhất là 2 đoạn đúng cùng điểm ~1,0 đổi chỗ ở hạng 4/5.
+- **Trên bộ câu khó cho keyword** (`evals/retrieval/lexical_stress.json`, chạy bằng `scripts/eval_lexical_stress.py`), hybrid tìm được các câu hỏi theo đúng giá mà vector không tìm được.
+- **Đánh đổi:** hybrid chậm hơn khoảng 0,2 giây mỗi câu.
+
+## Sửa truy vấn keyword tiếng Việt (`app/retrieval/ranking.py`)
+- **Trước đây** truy vấn là OR của từng âm tiết (`"hỗ" OR "trợ" OR "cân" …`), khớp với gần như mọi tài liệu.
+- **Giờ** kênh keyword chuyên tìm **định danh chính xác**: con số (giữ nguyên `116.820`), tên sản phẩm và chữ viết tắt. Câu không có định danh thì dùng cụm 2 âm tiết, bỏ qua các cụm quá phổ biến.
+- **Thử AND trước rồi mới nới ra OR.** Lý do: `ts_rank_cd` không có IDF, nên `"770.000" OR "bizfly"` bị "bizfly" (có trong mọi trang Bizfly) lấn át. Đo thật: OR không tìm ra, AND tìm đúng.
+- **Thêm bảng từ viết tắt:** `KMS` được mở rộng thành `Key Management Service` (tài liệu không hề ghi "KMS").
+
+## Câu hỏi làm rõ và ngôn ngữ cảnh báo (`app/graders/self_rag_grader.py`)
+- Specialist không gọi tool, câu trả lời không có con số và là một câu hỏi: đó là câu hỏi làm rõ, **không gắn cảnh báo**. Câu có con số hoặc tuyên bố cụ thể mà không có tool vẫn bị cảnh báo.
+- Câu hỏi tiếng Việt nhận cảnh báo tiếng Việt.
+- Khung nhật ký báo "chưa kiểm chứng" đúng lúc, kể cả khi không có dữ liệu tool.
+
+## Tiêu chí hiệu chỉnh ngưỡng mới (`app/retrieval/calibration.py`)
+- **Tiêu chí mặc định là `abstention`:**
+  - Tối đa hóa tỷ lệ câu có đáp án nhận được ít nhất 1 đoạn đúng.
+  - Chặn trên Wilson 95% của tỷ lệ chấp nhận nhầm câu không có đáp án phải ≤ 5%.
+  - Chỉ cần gán nhãn top-k ứng viên.
+  - Báo cáo ghi rõ số câu không có đáp án tối thiểu: **≥ 73 câu mỗi tập** cho mức 5%, ≥ 35 cho mức 10%.
+- Tiêu chí cũ vẫn dùng được qua `--criterion all-relevant`. Tiêu chí này chặt đến mức cần ít nhất 73 câu được chấp nhận và không sai câu nào.
+
+## Kiểm chứng
+- **278 test đều qua**, linter sạch: đã sửa 2 cảnh báo `B905` và `B023`.
+- Đã xác nhận trên DB thật: RPC vector v3 (có bộ lọc theo nhà cung cấp) và RPC keyword đều chạy.
+
+## Còn lại
+- **`seed_data.sql` vẫn chưa chạy:** bảng mapping và bảng giá đều 0 dòng. Lưu ý: giá trong file seed (5.000 VND/giờ…) trông giống dữ liệu mẫu, cần thay bằng giá thật trước khi dùng.
+- **Gán nhãn để hiệu chỉnh ngưỡng:** cần ≥ 73 câu không có đáp án mỗi tập (cho mức 5%).
+- **Gõ không dấu** với từ không phải tên sản phẩm ("can bang tai") vẫn phụ thuộc vào vector; cân nhắc `unaccent` trong một migration sau.

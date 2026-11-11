@@ -67,3 +67,56 @@ def test_rejects_invalid_or_leaking_labels(mutation):
         queries[1]["candidates"][0]["relevant"] = True
     with pytest.raises(ValueError):
         calibrate_threshold(queries)
+
+
+# --------------------------------------------------------------------------- abstention criterion
+from app.retrieval.calibration import (  # noqa: E402
+    abstention_metrics, calibrate_abstention, negatives_needed, wilson_upper_bound,
+)
+
+
+def abstention_queries(negatives_per_split=80, positives_per_split=40):
+    queries = []
+    for split in ("calibration", "validation"):
+        for i in range(positives_per_split):
+            queries.append({"id": f"{split}-p{i}", "question": f"{split} answerable {i}", "split": split,
+                            "answerable": True,
+                            "candidates": [{"id": "gold", "score": 0.95, "relevant": True},
+                                           {"id": "near", "score": 0.6, "relevant": False},   # partly relevant
+                                           {"id": "deep", "score": 0.05, "relevant": None}]})  # unreviewed, below top-k
+        for i in range(negatives_per_split):
+            queries.append({"id": f"{split}-n{i}", "question": f"{split} unanswerable {i}", "split": split,
+                            "answerable": False,
+                            "candidates": [{"id": "noise", "score": 0.02, "relevant": False}]})
+    return queries
+
+
+def test_required_unanswerable_sample_size_is_reported():
+    assert negatives_needed(0.05) == 73 and negatives_needed(0.10) == 35
+    assert wilson_upper_bound(0, 0) == 1.0
+
+
+def test_abstention_selects_a_cutoff_that_rejects_unanswerable_questions():
+    result = calibrate_abstention(abstention_queries(), top_k=2)
+    assert result["status"] == "validated"
+    assert 0.02 < result["selected_threshold"] <= 0.95
+    assert result["validation"]["answerable_hit_rate"] == 1.0
+    assert result["validation"]["false_accept_rate"] == 0.0
+
+
+def test_partly_relevant_extra_passages_are_not_failures():
+    m = abstention_metrics(abstention_queries(), threshold=0.5, top_k=4)
+    assert m["answerable_hit_rate"] == 1.0 and m["top1_precision"] == 1.0
+
+
+def test_too_few_unanswerable_questions_cannot_be_validated():
+    result = calibrate_abstention(abstention_queries(negatives_per_split=20), top_k=2)
+    assert result["status"] == "insufficient_calibration_evidence" and result["selected_threshold"] is None
+    assert "73" in result["hint"] and "have 20" in result["hint"]
+
+
+def test_only_top_k_needs_labels():
+    queries = abstention_queries()
+    queries[0]["candidates"][0]["relevant"] = None   # top-1 unlabelled -> rejected
+    with pytest.raises(ValueError):
+        calibrate_abstention(queries, top_k=2)
