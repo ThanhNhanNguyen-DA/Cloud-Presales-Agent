@@ -76,7 +76,10 @@ def entries_for_event(event: dict, t: float, ctx: dict | None = None) -> list[di
             new = [name for name in tools if TOOL_LABELS.get(name, name) not in announced]
             announced.update(TOOL_LABELS.get(name, name) for name in tools)
             out = [_entry(t, "🔧", f"Đã dùng: {_tools_text(new)}")] if new else []
-            if d.get("found_data") is False:
+            if d.get("tool_failed"):
+                out.append(_entry(t, "❌", "Không truy cập được kho dữ liệu (lỗi hệ thống, "
+                                          "không phải là không có thông tin)", "error"))
+            elif d.get("found_data") is False:
                 out.append(_entry(t, "🔎", "Không tìm thấy dữ liệu phù hợp trong hệ thống", "warn"))
             return out
         if node == "general":
@@ -111,6 +114,26 @@ def entries_for_event(event: dict, t: float, ctx: dict | None = None) -> list[di
     if etype == "error":
         return [_entry(t, "❌", "Có lỗi khi trả lời — vui lòng thử lại", "error")]
     return []
+
+
+def grading_status(verdicts: list[str] | None, found_data: bool | None = None,
+                   tool_failed: bool = False) -> tuple[str, str, str] | None:
+    """
+    (label, icon, color) of the fact-check badge under an answer, from the grader's progress
+    verdicts in order; None when nothing was checked (small talk, a clarifying question).
+    `found_data=False`: the tools found nothing, so a PASS only means "nothing was invented",
+    not that the question was answered; "Verified" would mislead. `tool_failed`: the lookup
+    itself broke (e.g. database unreachable), which must not look like "no information".
+    """
+    if tool_failed:
+        return "Lỗi hệ thống tra cứu", "❌", "red"
+    if not verdicts or verdicts[-1] in (None, "skipped"):
+        return None
+    if verdicts[-1] == "pass" and found_data is False:
+        return "Không có dữ liệu", "🔎", "gray"
+    if verdicts[-1] == "pass":
+        return ("Self-Corrected", "🔁", "blue") if "retry" in verdicts else ("Verified", "✅", "green")
+    return "Warning", "⚠️", "orange"  # warn / unverified: the answer carries a caveat
 
 
 def format_entry(entry: dict) -> str:

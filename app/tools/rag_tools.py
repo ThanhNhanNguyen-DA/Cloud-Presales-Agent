@@ -90,6 +90,7 @@ def retrieve_documents(query: str, *, category: str | None = None,
                        min_score: float = RERANK_MIN_SCORE) -> RetrievalResult:
     """The shared production/evaluation path: scoped candidates -> RRF -> rerank."""
     notes = []
+    vector_error: Exception | None = None
     query = expand_aliases(query)  # "KMS" -> "KMS (Key Management Service)" for every stage
     try:
         vector = _vector_search(query, category=category, exclude=exclude, provider=provider)
@@ -97,7 +98,7 @@ def retrieve_documents(query: str, *, category: str | None = None,
             notes.append("Legacy vector search in use; migration 003 is needed for the current retrieval backend.")
     except Exception as exc:  # noqa: BLE001 - lexical retrieval may still find evidence
         logger.warning("Vector retrieval unavailable: %s", exc)
-        vector = []
+        vector, vector_error = [], exc
         notes.append("Semantic retrieval unavailable; coverage may be incomplete.")
     keyword = []
     method = "vector"
@@ -118,6 +119,10 @@ def retrieve_documents(query: str, *, category: str | None = None,
         except Exception as exc:  # noqa: BLE001 - migration 004 is optional during rollout
             logger.warning("Keyword retrieval unavailable: %s", exc)
             notes.append("Keyword retrieval unavailable; using semantic candidates only.")
+    if vector_error is not None and method != "hybrid":
+        # No channel answered: the store is down. An empty result would read as "we have no
+        # documents on this", so fail loudly; the tool loop reports it to the agent as an error.
+        raise RuntimeError(f"Document store unreachable: {vector_error}") from vector_error
     vector = eligible_documents(vector, category=category, exclude=exclude, provider=provider)
     keyword = eligible_documents(keyword, category=category, exclude=exclude, provider=provider)
     candidates = reciprocal_rank_fusion(vector, keyword, limit=CANDIDATES * 2)

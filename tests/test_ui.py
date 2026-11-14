@@ -11,7 +11,7 @@ import pytest
 UI_DIR = Path(__file__).resolve().parents[1] / "ui"
 sys.path.insert(0, str(UI_DIR))
 
-from activity_log import entries_for_event, format_entry, route_badge  # noqa: E402
+from activity_log import entries_for_event, format_entry, grading_status, route_badge  # noqa: E402
 
 
 # --------------------------------------------------------------------------- wording
@@ -81,6 +81,29 @@ def test_format_and_badge():
     assert route_badge(None).startswith("❔")
 
 
+@pytest.mark.parametrize("verdicts, label", [
+    (["pass"], "Verified"), (["retry", "pass"], "Self-Corrected"), (["retry", "warn"], "Warning"),
+    (["unverified"], "Warning"), (["skipped"], None), ([], None), (None, None),
+])
+def test_grading_badge(verdicts, label):
+    status = grading_status(verdicts)
+    assert (status[0] if status else None) == label
+
+
+def test_no_data_answer_is_not_labelled_verified():
+    assert grading_status(["pass"], found_data=False)[0] == "Không có dữ liệu"
+    assert grading_status(["pass"], found_data=True)[0] == "Verified"
+    assert grading_status(["pass"], found_data=False, tool_failed=True)[0] == "Lỗi hệ thống tra cứu"
+
+
+def test_unreachable_store_is_logged_as_a_system_error():
+    out = entries_for_event({"type": "progress", "node": "document",
+                             "detail": {"tools": ["search_cloud_documents"], "found_data": False,
+                                        "tool_failed": True}}, 1)
+    assert out[-1]["level"] == "error" and "lỗi hệ thống" in out[-1]["text"]
+    assert not any("Không tìm thấy" in e["text"] for e in out)
+
+
 # --------------------------------------------------------------------------- page smoke test
 def _sse(*events):
     return [f"data: {json.dumps(e, ensure_ascii=False)}" for e in events]
@@ -137,6 +160,8 @@ def test_asking_a_question_fills_chat_and_activity_log():
         assert expected in texts
     page = " ".join(m.value for m in at.markdown)
     assert "số liệu khớp" in page and "Mất khoảng 16,7 phút." in page
+    assert at.session_state["chat_history"][-1]["grading"] == ["pass"]
+    assert "Verified" in page  # fact-check badge under the answer
 
 
 def test_backend_error_is_shown_in_plain_words():

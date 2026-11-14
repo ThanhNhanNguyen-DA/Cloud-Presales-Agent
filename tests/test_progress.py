@@ -26,8 +26,8 @@ def test_supervisor_and_agent_details():
     assert describe_step("supervisor", {"route": "document", "retrieved_experience": "x"}, None) == \
         {"route": "document", "used_corrections": True}
     assert describe_step("calculator", {"raw_tool_output": RAW_OK}, None) == \
-        {"tools": ["calculate_backup_and_cost"], "found_data": True}
-    assert describe_step("document", {"raw_tool_output": None}, None) == {"tools": [], "found_data": False}
+        {"tools": ["calculate_backup_and_cost"], "found_data": True, "tool_failed": False}
+    assert describe_step("document", {"raw_tool_output": None}, None) == {"tools": [], "found_data": False, "tool_failed": False}
     assert describe_step("general", {"final_response": "hi"}, None) == {"tools": []}
 
 
@@ -85,3 +85,11 @@ def test_stream_announces_tool_calls_early():
         text = client.post("/chat/stream", json={"query": "q"}).text
     calls = [json.loads(line[5:]) for line in text.splitlines() if '"tool_call"' in line]
     assert [c["detail"] for c in calls] == [{"tool": "calculate_backup_and_cost", "agent": "calculator"}]
+
+
+def test_tool_failure_is_told_apart_from_bad_input():
+    outage = ("search_cloud_documents({'query': 'x'}) -> {'error': \"Tool 'search_cloud_documents' failed: "
+              "Document store unreachable: [Errno -2] Name or service not known\"}")
+    bad_input = "calculate_backup_and_cost({'bandwidth_mbps': 0}) -> {'error': 'bandwidth_mbps must be greater than 0'}"
+    assert describe_step("document", {"raw_tool_output": outage}, None)["tool_failed"] is True
+    assert describe_step("calculator", {"raw_tool_output": bad_input}, None)["tool_failed"] is False

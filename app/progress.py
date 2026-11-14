@@ -7,7 +7,7 @@ be told about (the UI turns them into sentences):
 
     supervisor -> {"route": "calculator", "used_corrections": False}
     calculator / document / competitor
-               -> {"tools": ["calculate_backup_and_cost"], "found_data": True}
+               -> {"tools": ["calculate_backup_and_cost"], "found_data": True, "tool_failed": False}
     general    -> {"tools": []}
     grader     -> {"verdict": "pass" | "retry" | "warn" | "unverified" | "skipped",
                    "attempt": 1}
@@ -23,6 +23,9 @@ SPECIALISTS = {"calculator", "document", "competitor"}
 _TOOL_CALL = re.compile(r"^(\w+)\(")
 # Tool results that mean "nothing usable came back".
 _NO_DATA = re.compile(r"No relevant|No matching|No mapping data|not found|'error'|\"error\"", re.IGNORECASE)
+# A tool that raised (DB unreachable, …), as wrapped by app/agents/tool_agent._run_tool: a system
+# failure, unlike a validation error such as "bandwidth_mbps must be greater than 0".
+_TOOL_FAILED = re.compile(r"Tool '\w+' failed:")
 
 
 def tools_used(raw_tool_output: str | None) -> list[str]:
@@ -55,7 +58,8 @@ def describe_step(node: str, update: dict, raw_before: str | None, attempt: int 
         return {"route": update.get("route"), "used_corrections": bool(update.get("retrieved_experience"))}
     if node in SPECIALISTS:
         raw = update.get("raw_tool_output")
-        return {"tools": tools_used(raw), "found_data": found_data(raw)}
+        return {"tools": tools_used(raw), "found_data": found_data(raw),
+                "tool_failed": bool(_TOOL_FAILED.search(raw or ""))}
     if node == "general":
         return {"tools": []}
     if node == "grader":

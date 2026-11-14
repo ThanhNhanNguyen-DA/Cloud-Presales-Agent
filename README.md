@@ -123,6 +123,11 @@ Defined in [`app/evaluation/metrics.py`](app/evaluation/metrics.py). Run on the 
 python -m scripts.run_ragas_eval        # uses data/eval/ground_truth.json → data/eval/latest_ragas.json
 ```
 
+**Evaluation suite** ([`evals/`](evals/README.md)): golden end-to-end cases scored on routing & memory, data
+isolation, tools & guardrails and self-correction; an adversarial set for the Grounding Grader (FNR / FPR);
+RAGAS-style scoring with a grader cross-check. Offline by default, `--live` for real models. Results land in
+`evals/results/` and feed the **Eval & Quality Dashboard** page of the UI.
+
 ---
 
 ## Get started
@@ -167,7 +172,13 @@ and the liveness check at **http://localhost:8000/health**. `scripts/dev.sh` use
 explains each step in plain language — how the question was understood, which tool or data source is
 being used, the automatic number check (✅ / ⚠️), the quality score and the total time. The wording lives
 in `ui/activity_log.py`; the backend adds the facts to each `progress` SSE event (`app/progress.py`).
-The sidebar shows whether the backend is online and offers example questions.
+The sidebar shows whether the backend is online and offers example questions. Each answer carries a
+fact-check badge: **Verified**, **Self-Corrected** (fixed by the grader's retry) or **⚠️ Warning**.
+
+**Eval & Quality Dashboard** (second page, `ui/dashboard_page.py`; needs `ADMIN_API_KEY` unless
+`AUTH_DISABLED=true`): KPIs, a Baseline-vs-Current radar, a route → grader → outcome Sankey, a
+`RERANK_MIN_SCORE` calibration scatter and a failure / discrepancy explorer, read from `evals/results/`
+(sample data until the first eval run).
 
 Quick check:
 ```bash

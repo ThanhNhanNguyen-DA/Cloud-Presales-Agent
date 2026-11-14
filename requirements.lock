@@ -185,6 +185,7 @@ multidict==7.2.1
 narwhals==2.28.0
     # via
     #   altair
+    #   plotly
     #   scikit-learn
 networkx==3.7
     # via torch
@@ -256,6 +257,7 @@ packaging==26.3
     #   huggingface-hub
     #   langchain-core
     #   langsmith
+    #   plotly
     #   pytest
     #   streamlit
     #   transformers
@@ -263,6 +265,8 @@ pandas==3.1.0
     # via streamlit
 pillow==13.0.0
     # via streamlit
+plotly==6.9.0
+    # via -r requirements.txt
 pluggy==1.7.0
     # via pytest
 postgrest==2.34.0

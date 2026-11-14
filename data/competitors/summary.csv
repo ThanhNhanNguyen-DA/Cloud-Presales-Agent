@@ -1,29 +1,35 @@
 provider,url,title,num_tables,text_length,fetched_at
-bizfly,https://bizflycloud.vn,Bizfly Cloud - Cung cấp dịch vụ điện toán đám mây tốt nhất tại Việt Nam,0,22093,2026-07-17T07:06:08.172727+00:00
-cmc,https://cmccloud.vn/,CMC Cloud | Giải pháp Công nghệ điện toán đám mây hàng đầu Việt Nam | Website chính thức,0,8230,2026-07-17T07:06:10.639685+00:00
-cmc,https://cmccloud.vn/dich-vu/elastic-compute,Elastic Compute | CMC Cloud,0,10298,2026-07-17T07:06:12.650803+00:00
-cmc,https://cmccloud.vn/tin-tuc/ahamove-but-pha-giao-van-cung-cmc-cloud-the-he-moi-184,Ahamove bứt phá giao vận cùng CMC Cloud thế hệ mới,0,7356,2026-07-17T07:06:14.996813+00:00
-cmc,https://cmccloud.vn/tin-tuc/cmc-cloud-dong-hanh-dot-b-but-pha-cong-nghe-giao-duc,CMC Cloud đồng hành DotB bứt phá công nghệ giáo dục,0,6788,2026-07-17T07:06:17.289138+00:00
-cmc,https://cmccloud.vn/tin-tuc/ims-thuc-day-trien-khai-cac-giai-phap-so-voi-cmc-cloud-the-he-moi,IMS thúc đẩy triển khai các giải pháp số với CMC Cloud thế hệ mới,0,7149,2026-07-17T07:06:19.423741+00:00
-cmc,https://cmccloud.vn/tin-tuc/doanh-nghiep-professional-services-tu-tin-so-hoa-cung-cmc-cloud-the-he-moi,Doanh nghiệp Professional Services tự tin số hoá cùng CMC Cloud thế hệ mới,0,7967,2026-07-17T07:06:21.553997+00:00
-cmc,https://cmccloud.vn/dich-vu,CMC Cloud | Dịch vụ Điện toán đám mây,0,7502,2026-07-17T07:06:28.744118+00:00
-cmc,https://cmccloud.vn/dich-vu/s3-standard,S3 Standard | CMC Cloud,0,6946,2026-07-17T07:06:30.700171+00:00
-cmc,https://cmccloud.vn/dich-vu/cloud-backup,Cloud Backup | CMC Cloud,0,6424,2026-07-17T07:06:32.615912+00:00
-fpt,https://fptcloud.com/,FPT Cloud - Nền tảng Cloud cho sáng tạo đột phá,1,13933,2026-07-17T07:06:34.079208+00:00
-fpt,https://fptcloud.com/product/fpt-mongodb-enterprise,FPT MongoDB Enterprise - FPT Smart Cloud,1,11323,2026-07-17T07:06:38.412441+00:00
-fpt,https://fptcloud.com/product/fpt-ai-factory-vn,FPT AI Factory with AI Cloud for Developers & Enterprises,0,6814,2026-07-17T07:06:41.082317+00:00
-fpt,https://fptcloud.com/bang-gia,Bảng Giá Thuê Cloud Server 2026 - Giá Tốt Dành Cho Doanh Nghiệp,4,119442,2026-07-17T07:06:43.973780+00:00
-fpt,https://fptcloud.com/san-pham,Các sản phẩm của FPT Cloud,1,8306,2026-07-17T07:06:46.360798+00:00
-fpt,https://fptcloud.com/product/cloud-va,FPT Cloud VA - FPT Smart Cloud,1,11604,2026-07-17T07:06:48.974364+00:00
-fpt,https://fptcloud.com/product/cloud-waf,Cloud WAF,1,9643,2026-07-17T07:06:53.369726+00:00
-fpt,https://fptcloud.com/product/fpt-data-suite,Trang chủ - Datasuite,0,5265,2026-07-17T07:06:57.734035+00:00
-fpt,https://fptcloud.com/product/backup-service,Backup Services – Dịch vụ sao lưu dữ liệu đám mây,1,11887,2026-07-17T07:07:05.825777+00:00
-viettel,https://viettelcloud.vn/,Viettel Cloud,0,24,2026-07-17T07:07:06.147136+00:00
-vng,https://vngcloud.vn/,VNG Cloud - Trusted Partner for Digital Transformation | VNG Cloud,0,4172,2026-07-17T07:07:06.468109+00:00
-vng,https://vngcloud.vn/en/product/ai-platform,AI Platform | VNG Cloud,0,1810,2026-07-17T07:07:08.251627+00:00
-vng,https://vngcloud.vn/en/product/gpu-cloud,GPU Cloud - Powerful GPU servers for AI/ML workloads | VNG Cloud | VNG Cloud,0,2294,2026-07-17T07:07:10.049607+00:00
-vng,https://vngcloud.vn/en/product/vserver,vServer - Smart Cloud Server System | VNG Cloud,0,2538,2026-07-17T07:07:11.915260+00:00
-vng,https://vngcloud.vn/en/product/vstorage,vStorage - Multi-tier cloud storage solution | VNG Cloud | VNG Cloud,0,2518,2026-07-17T07:07:13.753234+00:00
-vng,https://vngcloud.vn/en/product/vks,VKS - VNGCloud Kubernetes Service | VNG Cloud,0,2258,2026-07-17T07:07:15.623717+00:00
-vng,https://vngcloud.vn/en/product/vcdn,vCDN - Optimal Content Delivery Network | VNG Cloud,0,2031,2026-07-17T07:07:17.417282+00:00
-vng,https://vngcloud.vn/en/solution/bfsi,Solution BFSI - VNG Cloud | VNG Cloud,0,5785,2026-07-17T07:07:19.188155+00:00
+cmc,https://cmccloud.vn/dich-vu,CMC Cloud | Dịch vụ Điện toán đám mây,0,6822,2026-11-14T07:46:18.344158+00:00
+cmc,https://cmccloud.vn/dich-vu/api-gateway,API Gateway | CMC Cloud,0,3471,2026-11-14T07:46:19.869796+00:00
+cmc,https://cmccloud.vn/dich-vu/auto-scaling,Auto Scaling | CMC Cloud,0,6167,2026-11-14T07:46:21.414607+00:00
+cmc,https://cmccloud.vn/dich-vu/availability-zone,Availability Zone | CMC Cloud,0,4098,2026-11-14T07:46:23.819510+00:00
+cmc,https://cmccloud.vn/dich-vu/cicd-pipeline,CI/CD Pipeline  | CMC Cloud,0,4042,2026-11-14T07:46:25.331115+00:00
+cmc,https://cmccloud.vn/dich-vu/cloud-backup-recovery,Cloud Backup & Recovery | CMC Cloud,0,5399,2026-11-14T07:46:26.807108+00:00
+cmc,https://cmccloud.vn/dich-vu/cloud-billing,Cloud Billing | CMC Cloud,0,3580,2026-11-14T07:46:28.250297+00:00
+cmc,https://cmccloud.vn/dich-vu/cloud-firewall,Cloud Firewall | CMC Cloud,0,2817,2026-11-14T07:46:29.748675+00:00
+cmc,https://cmccloud.vn/dich-vu/cloud-kafka,Cloud Kafka | CMC Cloud,0,3648,2026-11-14T07:46:31.206497+00:00
+cmc,https://cmccloud.vn/dich-vu/cloud-monitoring,Cloud Monitoring | CMC Cloud,0,4391,2026-11-14T07:46:32.692147+00:00
+cmc,https://cmccloud.vn/dich-vu/cloud-terraform,Cloud Terraform  | CMC Cloud,0,3328,2026-11-14T07:46:34.131848+00:00
+cmc,https://cmccloud.vn/dich-vu/cloud-trace-service,Cloud Trace Service | CMC Cloud,0,3517,2026-11-14T07:46:35.627300+00:00
+cmc,https://cmccloud.vn/dich-vu/container-registry,Container Registry | CMC Cloud,0,3409,2026-11-14T07:46:37.134422+00:00
+cmc,https://cmccloud.vn/dich-vu/ddos,DDOS | CMC Cloud,0,4210,2026-11-14T07:46:38.628616+00:00
+cmc,https://cmccloud.vn/dich-vu/draas,Disaster Recovery-as-a-Service | CMC Cloud,0,2628,2026-11-14T07:46:40.169777+00:00
+cmc,https://cmccloud.vn/dich-vu/elastic-cloud-server,Elastic Cloud Server | CMC Cloud,0,8665,2026-11-14T07:46:42.657373+00:00
+cmc,https://cmccloud.vn/dich-vu/elastic-file,Elastic File | CMC Cloud,0,3790,2026-11-14T07:46:47.182320+00:00
+cmc,https://cmccloud.vn/dich-vu/elastic-gpu,Elastic GPU | CMC Cloud,0,5825,2026-11-14T07:46:48.676769+00:00
+cmc,https://cmccloud.vn/dich-vu/elastic-ip,Elastic IP (EIP) | CMC Cloud,0,3883,2026-11-14T07:46:50.130847+00:00
+cmc,https://cmccloud.vn/dich-vu/elastic-load-balancer,Elastic Load Balancer | CMC Cloud,0,5489,2026-11-14T07:46:51.655942+00:00
+cmc,https://cmccloud.vn/dich-vu/elastic-volume-service,Elastic Volume Service | CMC Cloud,0,5047,2026-11-14T07:46:53.146281+00:00
+cmc,https://cmccloud.vn/dich-vu/identity-and-access-management,Identity & Access Management (IAM) | CMC Cloud,0,3998,2026-11-14T07:46:55.508816+00:00
+cmc,https://cmccloud.vn/dich-vu/image-management,Image Management | CMC Cloud,0,4006,2026-11-14T07:46:56.976529+00:00
+cmc,https://cmccloud.vn/dich-vu/key-management,Key Management   | CMC Cloud,0,4078,2026-11-14T07:46:58.439807+00:00
+cmc,https://cmccloud.vn/dich-vu/kubernetes,Kubernetes (K8s) | CMC Cloud,0,5885,2026-11-14T07:46:59.936861+00:00
+cmc,https://cmccloud.vn/dich-vu/multi-cdn,Multi CDN | CMC Cloud,0,3787,2026-11-14T07:47:01.379875+00:00
+cmc,https://cmccloud.vn/dich-vu/redis-database,Redis Database | CMC Cloud,0,3050,2026-11-14T07:47:02.796634+00:00
+cmc,https://cmccloud.vn/dich-vu/relational-database-service,Relational Database Service (RDS) | CMC Cloud,0,6709,2026-11-14T07:47:04.258883+00:00
+cmc,https://cmccloud.vn/dich-vu/s3-cold-storage,Cold Storage | CMC Cloud,0,3981,2026-11-14T07:47:05.727580+00:00
+cmc,https://cmccloud.vn/dich-vu/s3-standard,Simple Storage Service (S3) | CMC Cloud,0,5936,2026-11-14T07:47:07.289899+00:00
+cmc,https://cmccloud.vn/dich-vu/security-group,Security Group | CMC Cloud,0,4398,2026-11-14T07:47:08.721013+00:00
+cmc,https://cmccloud.vn/dich-vu/storage-gateway,Storage Gateway | CMC Cloud,0,3575,2026-11-14T07:47:10.152202+00:00
+cmc,https://cmccloud.vn/dich-vu/virtual-private-cloud,Virtual Private Cloud (VPC) | CMC Cloud,0,4425,2026-11-14T07:47:11.690399+00:00
+cmc,https://cmccloud.vn/dich-vu/waap,WAAP | CMC Cloud,0,4822,2026-11-14T07:47:13.172712+00:00

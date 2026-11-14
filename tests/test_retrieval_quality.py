@@ -238,3 +238,20 @@ def test_activity_log_reports_unverified_even_without_tool_data():
     update = {"grading_passed": False, "final_response": "SLA 100%" + grader.UNVERIFIED_WARNING_VI}
     assert describe_step("grader", update, None)["verdict"] == "unverified"
     assert describe_step("grader", {"grading_passed": True, "grader_feedback": None}, None)["verdict"] == "skipped"
+
+
+def test_store_down_is_an_error_not_an_empty_result():
+    """Both channels unreachable must not read as "no documents on this" (it used to)."""
+    from app.agents.tool_agent import _run_tool
+
+    down = RuntimeError("[Errno -2] Name or service not known")
+    with patch.object(rag_tools, "_vector_search", side_effect=down), patch.object(rag_tools, "supabase") as sb:
+        sb.rpc.side_effect = down
+        with pytest.raises(RuntimeError, match="Document store unreachable"):
+            rag_tools.retrieve_documents("CMC Cloud có những dịch vụ gì?", hybrid=True)
+        result = _run_tool({"search_cloud_documents": rag_tools.search_cloud_documents},
+                           {"name": "search_cloud_documents", "args": {"query": "CMC Cloud có những dịch vụ gì?"}})
+    assert "Document store unreachable" in result["error"]
+    with patch.object(rag_tools, "_vector_search", side_effect=down):
+        with pytest.raises(RuntimeError):
+            rag_tools.retrieve_documents("ELB", hybrid=False)
