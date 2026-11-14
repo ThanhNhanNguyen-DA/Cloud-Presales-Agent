@@ -40,6 +40,7 @@ from pydantic import BaseModel, Field
 from app import security
 from app.agents.tool_agent import message_text
 from app.config import validate_config
+from app.db.supabase_client import supabase
 from app.graph.builder import build_graph
 from app.observability import current_metrics, setup_logging, start_request
 from app.progress import describe_step
@@ -389,6 +390,24 @@ async def admin_review_feedback(
     return {"id": row.get("id"), "review_status": row.get("review_status")}
 
 
+HEALTH_DB_TIMEOUT_S = 3.0
+
+
+def _ping_database() -> None:
+    supabase.table("cloud_documents").select("id").limit(1).execute()
+
+
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    """
+    Liveness plus a database check. Always 200 while the API process is up (a liveness probe
+    must not restart the API because Supabase is down); `database` says whether lookups can
+    work, so the UI can warn instead of answers silently turning into "no information".
+    """
+    try:
+        await asyncio.wait_for(asyncio.to_thread(_ping_database), timeout=HEALTH_DB_TIMEOUT_S)
+        database = "ok"
+    except Exception as exc:  # noqa: BLE001 - any failure means lookups will fail
+        logger.warning("Health check: database unreachable: %s", exc)
+        database = "unreachable"
+    return {"status": "ok" if database == "ok" else "degraded", "database": database}

@@ -16,7 +16,7 @@ import json
 import time
 from pathlib import Path
 
-from app.tools.rag_tools import COMPETITOR_CATEGORY, retrieve_documents
+from app.tools.rag_tools import COMPETITOR_CATEGORY, document_scope, retrieve_documents
 
 
 def passes(item: dict, documents: list[dict]) -> list[bool]:
@@ -34,7 +34,7 @@ def run(items: list[dict], hybrid: bool) -> dict:
     seconds, misses = [], []
     for item in items:
         scope = ({"category": COMPETITOR_CATEGORY} if item["scope"] == "competitor"
-                 else {"exclude": [COMPETITOR_CATEGORY]})
+                 else document_scope())
         started = time.perf_counter()
         result = retrieve_documents(item["question"], hybrid=hybrid, **scope)
         seconds.append(time.perf_counter() - started)

@@ -33,6 +33,9 @@ CANDIDATES = 15            # vector-search candidates handed to the reranker
 TOP_K = 4                  # chunks returned to the agent
 VECTOR_THRESHOLD = 0.3     # loose: the reranker does the real filtering
 COMPETITOR_CATEGORY = "Competitor"
+# Microsoft/Azure customer stories (scripts/pdf_casestudy_chunker.py): partner reference
+# material, not CMC Cloud's own documentation. Searched only when explicitly requested.
+CASE_STUDY_CATEGORY = "CaseStudy"
 COMPETITOR_PROVIDERS = ("vng", "fpt", "bizfly", "vnpt", "viettelidc", "viettel")
 
 
@@ -160,25 +163,38 @@ def _empty_result(result: RetrievalResult, message: str) -> str:
     return f"{message} {notes} State what information is missing; do not guess.".strip()
 
 
+def document_scope(category: str | None = None) -> dict:
+    """
+    Scope of search_cloud_documents, shared with the retrieval evals: our own documents only.
+    Competitor pages are never included; partner case studies only when asked for by category.
+    """
+    if category == CASE_STUDY_CATEGORY:
+        return {"category": category, "exclude": [COMPETITOR_CATEGORY]}
+    return {"category": category, "exclude": [COMPETITOR_CATEGORY, CASE_STUDY_CATEGORY]}
+
+
 @tool
 def search_cloud_documents(query: str, category: str | None = None) -> str:
     """
-    Searches OUR OWN technical, SLA, security, compliance and feature documentation.
+    Searches OUR OWN (CMC Cloud) technical, SLA, security, compliance, product and feature documentation.
 
     Args:
         query: The question or topic to search for (rephrase it as a full question).
-        category: Optional filter: 'SLA', 'Security', 'Compliance', 'Feature', 'CaseStudy'.
-            Leave empty to search everything (recommended unless the user names a category).
+        category: Optional filter: 'SLA', 'Security', 'Compliance', 'Feature' (CMC Cloud docs and product pages), or
+            'CaseStudy' = Microsoft/Azure customer stories (partner references, NOT CMC Cloud's
+            own customers or facts): use it only when the user asks for customer stories or
+            references; they are excluded otherwise. Leave empty to search our own documents
+            (recommended unless the user names a category).
 
     Returns:
         The most relevant passages with service name, category and source, or a message
         that no relevant document exists.
     """
-    result = retrieve_documents(query, category=category, exclude=[COMPETITOR_CATEGORY])
+    result = retrieve_documents(query, **document_scope(category))
     if not result.documents and category and result.rerank_status != "unavailable":
         # The LLM's category guess may not exist in the corpus (e.g. no "SLA" documents yet):
-        # search everything rather than wrongly concluding there is no information.
-        result = retrieve_documents(query, exclude=[COMPETITOR_CATEGORY])
+        # search our own documents rather than wrongly concluding there is no information.
+        result = retrieve_documents(query, **document_scope())
         result.notes.append(f"No accepted evidence in category {category!r}; broader passages may answer only part of the question.")
     if not result.documents:
         return _empty_result(result, "No relevant documents found in the database for this question.")

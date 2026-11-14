@@ -30,13 +30,6 @@ _first_key = (os.getenv("API_KEYS", "").split(",")[0].strip()).rpartition(":")[2
 API_KEY = os.getenv("PRESALES_API_KEY") or _first_key
 HEADERS = {"X-API-Key": API_KEY} if API_KEY else {}
 
-EXAMPLES = [
-    "Backup 50GB qua đường truyền 200Mbps mất bao lâu, chi phí lưu trữ Cool mỗi tháng?",
-    "Ứng dụng Java 500 người dùng đồng thời cần cấu hình máy chủ thế nào?",
-    "ELB hỗ trợ những thuật toán cân bằng tải nào?",
-    "Giá Cloud Server rẻ nhất của Bizfly là bao nhiêu?",
-    "AWS S3 tương đương dịch vụ nào bên mình?",
-]
 SCORECARD = [
     ("faithfulness", "Bám sát dữ liệu", "Câu trả lời dựa đúng vào dữ liệu tra cứu được (không bịa)."),
     ("answer_relevancy", "Đúng trọng tâm", "Câu trả lời đi thẳng vào câu hỏi."),
@@ -72,11 +65,19 @@ def _error_text(resp: requests.Response) -> str:
 
 
 @st.cache_data(ttl=15, show_spinner=False)
-def backend_online() -> bool:
+def backend_health() -> dict | None:
+    """The backend's /health body ({"status", "database"}), or None if the API is unreachable."""
     try:
-        return requests.get(f"{API_BASE_URL}/health", timeout=2).ok
+        # Above the backend's own 3 s database-check timeout, so a slow DB is not read as "API down".
+        resp = requests.get(f"{API_BASE_URL}/health", timeout=5)
     except requests.exceptions.RequestException:
-        return False
+        return None
+    if not resp.ok:
+        return None
+    try:
+        return resp.json()
+    except ValueError:
+        return {}
 
 
 def send_feedback(payload: dict) -> tuple[bool, str]:
@@ -96,7 +97,6 @@ ss = st.session_state
 ss.setdefault("chat_history", [])  # {role, content, query, route, total, ragas, feedback_given, is_error}
 ss.setdefault("activity", [])      # {question, time, entries}
 ss.setdefault("session_id", str(uuid.uuid4()))
-ss.setdefault("pending", None)
 
 
 def new_conversation() -> None:
@@ -106,16 +106,15 @@ def new_conversation() -> None:
 # --------------------------------------------------------------------------- sidebar
 with st.sidebar:
     st.subheader("☁️ Trợ lý Presales")
-    if backend_online():
-        st.success("Hệ thống sẵn sàng", icon="🟢")
-    else:
+    health = backend_health()
+    if health is None:
         st.error("Không kết nối được tới hệ thống", icon="🔴")
         st.caption(f"Kiểm tra backend tại {API_BASE_URL}")
-
-    st.markdown("**Thử một câu hỏi mẫu**")
-    for i, example in enumerate(EXAMPLES):
-        if st.button(example, key=f"example_{i}", width="stretch"):
-            ss.pending = example
+    elif health.get("database") == "unreachable":
+        st.warning("Kho dữ liệu (Supabase) không truy cập được: các câu hỏi cần tra cứu tài liệu, "
+                   "đối thủ sẽ báo lỗi. Tính toán chi phí / cấu hình vẫn dùng được.", icon="🟠")
+    else:
+        st.success("Hệ thống sẵn sàng", icon="🟢")
 
     st.divider()
     st.button("🆕 Cuộc trò chuyện mới", on_click=new_conversation, width="stretch")
@@ -177,7 +176,7 @@ render_log()
 
 with chat_col:
     if not ss.chat_history:
-        st.info("👋 Xin chào! Hãy đặt câu hỏi ở ô bên dưới, hoặc chọn một câu hỏi mẫu ở thanh bên trái.")
+        st.info("👋 Xin chào! Hãy đặt câu hỏi ở ô bên dưới.")
 
     for idx, msg in enumerate(ss.chat_history):
         with st.chat_message(msg["role"]):
@@ -224,8 +223,7 @@ with chat_col:
                         st.rerun()
                     st.error(text)
 
-question = st.chat_input("Nhập câu hỏi (ví dụ: Backup 10GB qua 100Mbps mất bao lâu?)") or ss.pending
-ss.pending = None
+question = st.chat_input("Nhập câu hỏi…")
 
 if question:
     ss.chat_history.append({"role": "user", "content": question})

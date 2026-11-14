@@ -13,9 +13,17 @@ client = TestClient(app, headers={"X-API-Key": "test-api-key"})
 
 
 def test_health_check():
-    response = client.get("/health")
+    with patch("app.main._ping_database"):
+        response = client.get("/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+    assert response.json() == {"status": "ok", "database": "ok"}
+
+
+def test_health_reports_an_unreachable_database_without_failing_liveness():
+    with patch("app.main._ping_database", side_effect=ConnectionError("Name or service not known")):
+        response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "degraded", "database": "unreachable"}
 
 
 def test_chat_endpoint():

@@ -23,7 +23,7 @@ Classify the LATEST question into EXACTLY one of these groups: calculator, docum
 
 - calculator: compute a number from the user's inputs — backup duration, storage cost per month,
   VM sizing (vCPU/RAM for N concurrent users), database growth / storage tier for an IOPS need.
-- document: anything about OUR OWN cloud services — what a service does, its features, specs, limits,
+- document: anything about OUR OWN cloud services (we are CMC Cloud) — what a service does, its features, specs, limits,
   how to create/configure/use it, SLA and uptime, security certifications, legal compliance.
   Our services include: Cloud Server, Object Storage, ELB (load balancer), Auto Scaling, VPC, VPN,
   RDS / RDS for MySQL, Key Management Service, Cloud Trace, Elastic IP, Elastic GPU, Cloud Kafka,

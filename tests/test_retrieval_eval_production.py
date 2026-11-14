@@ -23,7 +23,7 @@ def test_reports_runtime_hit_rate_and_keeps_unjudged_labels_unknown():
     assert report["metrics"]["hit_at_1"] == 0.0
     assert report["metrics"]["hit_at_k"] == 1.0 and report["metrics"]["mrr_at_k"] == 0.5
     args = retrieve.call_args.kwargs
-    assert args["category"] is None and args["exclude"] == ["Competitor"]
+    assert args["category"] is None and args["exclude"] == ["Competitor", "CaseStudy"]
     assert args["min_score"] == 0.0
     candidates = report["queries"][0]["candidates"]
     assert [c["relevant"] for c in candidates] == [None, True, None]
@@ -44,3 +44,13 @@ def test_unscored_results_cannot_be_used_to_calibrate():
     with patch.object(evaluation, "retrieve_documents", return_value=RetrievalResult([], "vector", "disabled", 0.0)):
         with pytest.raises(RuntimeError, match="available, enabled reranker"):
             evaluation.evaluate_queries([{"question": "ELB?"}])
+
+
+def test_case_study_scope_is_declared_by_the_dataset_not_the_gold_label():
+    returned = RetrievalResult([], "hybrid", "scored", 0.0)
+    with patch.object(evaluation, "retrieve_documents", return_value=returned) as retrieve:
+        evaluation.evaluate_queries([{"question": "Saxo Bank Copilot?", "scope": "casestudy", "gold_id": "g"}])
+        assert retrieve.call_args.kwargs["category"] == "CaseStudy"
+        assert retrieve.call_args.kwargs["exclude"] == ["Competitor"]
+        evaluation.evaluate_queries([{"question": "Saxo Bank Copilot?", "category": "CaseStudy", "gold_id": "g"}])
+        assert retrieve.call_args.kwargs["exclude"] == ["Competitor", "CaseStudy"]   # gold label ignored

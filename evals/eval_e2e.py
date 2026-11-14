@@ -90,7 +90,7 @@ MOCK_DOCS = [
     {"id": "own-cs-sec", "service_name": "Cloud Server", "category": "Security",
      "content": "Cloud Server holds ISO 27001 certification and complies with PCI-DSS.",
      "metadata": {"source": "docs/security_compliance.docx"}},
-    {"id": "own-cmc-catalogue", "service_name": "CMC Cloud", "category": "Product",
+    {"id": "own-cmc-catalogue", "service_name": "CMC Cloud", "category": "Feature",
      "content": "Dịch vụ CMC Cloud: Elastic Compute, Elastic GPU, Elastic Volume, RDS, Cloud Backup, Kubernetes, Auto Scaling.",
      "metadata": {"source": "https://cmccloud.vn/dich-vu", "provider": "cmc", "role": "own"}},
 ] + [

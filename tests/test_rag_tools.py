@@ -21,13 +21,25 @@ def rpc(monkeypatch):
         yield sb
 
 
-def test_document_search_excludes_competitor_pages(rpc):
-    rpc.rpc.return_value.execute.return_value = MagicMock(data=[_doc(1)])
+def test_document_search_excludes_competitor_pages_and_partner_case_studies(rpc):
+    case_study = {**_doc(2), "category": "CaseStudy", "content": "Saxo Bank uses Azure OpenAI"}
+    rpc.rpc.return_value.execute.return_value = MagicMock(data=[_doc(1), case_study])
     with patch.object(reranker, "rerank_enabled", return_value=False):
         out = rag_tools.search_cloud_documents.invoke({"query": "SLA?"})
     params = rpc.rpc.call_args.args[1]
-    assert params["exclude_categories"] == ["Competitor"] and params["match_count"] == 15
+    assert params["exclude_categories"] == ["Competitor", "CaseStudy"] and params["match_count"] == 15
     assert "svc1" in out and "Source: doc1.docx" in out
+    assert "Saxo Bank" not in out          # even if an old RPC ignores the filter
+
+
+def test_case_studies_only_on_explicit_request(rpc):
+    case_study = {**_doc(2), "category": "CaseStudy", "content": "Saxo Bank uses Azure OpenAI"}
+    rpc.rpc.return_value.execute.return_value = MagicMock(data=[case_study])
+    with patch.object(reranker, "rerank_enabled", return_value=False):
+        out = rag_tools.search_cloud_documents.invoke({"query": "bank customer story", "category": "CaseStudy"})
+    params = rpc.rpc.call_args.args[1]
+    assert params["filter_category"] == "CaseStudy" and params["exclude_categories"] == ["Competitor"]
+    assert "Saxo Bank" in out
 
 
 def test_falls_back_to_old_rpc_signature_and_filters_in_python(rpc):
@@ -112,3 +124,9 @@ def test_empty_category_filter_retries_without_it(rpc):
     first, second = (c.args[1] for c in rpc.rpc.call_args_list)
     assert first["filter_category"] == "SLA" and second["filter_category"] is None
     assert "svc7" in out
+
+
+def test_competitor_agent_reads_our_documents_for_the_cmc_side():
+    from app.agents.competitor_agent import SYSTEM_PROMPT, TOOLS
+    assert "search_cloud_documents" in {t.name for t in TOOLS}
+    assert "Primary data = OUR side" in SYSTEM_PROMPT

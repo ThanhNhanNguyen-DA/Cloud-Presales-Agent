@@ -70,7 +70,7 @@ All calls go through one wrapper, [`app/llm.py`](app/llm.py): an ordered model c
 | `cloud_feedback_memory` | Episodic memory: query/response + `is_positive` + `user_correction` + embedding |
 | `cloud_conversation_history` | Multi-turn memory: one row per message (`session_id`, `role`, `content`, `route`) |
 
-Text is vectorised by **Qwen3-Embedding-0.6B**, truncated via Matryoshka to **512 dims** and L2-normalised; two RPC functions do cosine search (HNSW index). Documents are chunked **structure-aware** (DOCX by heading + tables, PDF per case study, recursive split for the rest), not blind fixed-length cuts.
+Text is vectorised by **Qwen3-Embedding-0.6B**, truncated via Matryoshka to **512 dims** and L2-normalised; two RPC functions do cosine search (HNSW index). Documents are chunked **structure-aware** (DOCX by heading + tables, PDF per case study, recursive split for the rest), not blind fixed-length cuts. `search_cloud_documents` searches CMC Cloud's own documents only: competitor pages are never included, and the Microsoft/Azure customer stories (category `CaseStudy`) only when the agent explicitly asks for case studies (`rag_tools.document_scope`).
 
 ### Retrieval pipeline
 
@@ -140,7 +140,7 @@ uv venv --python python3.12 .venv                    # reuse an existing uv .ven
 source .venv/bin/activate                           # Windows: .venv\Scripts\activate
 uv pip sync requirements.lock                       # exact tested versions (app + tests)
 # to upgrade: uv pip compile requirements-dev.txt -o requirements.lock --upgrade
-test -f .env || cp .env.example .env                 # fill in GROQ_API_KEY, SUPABASE_URL, SUPABASE_KEY
+test -f .env || cp .env.example .env                 # fill in GROQ_API_KEY, SUPABASE_URL, SUPABASE_SECRET_KEY
 ```
 > `.env`: `EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B`, `EMBEDDING_DIM=512`. Optional `LLM_MODELS=…` / `SUPERVISOR_MODELS=…` (entries `provider:model`, see `.env.example`). The embedding model (~1.2 GB) caches locally on first use — no key needed for it.
 
@@ -148,7 +148,8 @@ test -f .env || cp .env.example .env                 # fill in GROQ_API_KEY, SUP
 # 2. Database — run sql/schema.sql, sql/seed_data.sql, then sql/migrations/*.sql in order,
 #    in the Supabase SQL Editor (python -m app.db.run_migration prints the exact SQL).
 #    Creates 5 tables + 2 RPC + pgvector, the feedback review columns, and Row Level Security.
-#    Use a secret / service_role key as SUPABASE_KEY (RLS blocks the anon key).
+#    Use the secret key (sb_secret_…) as SUPABASE_SECRET_KEY, or a legacy service_role key as
+#    SUPABASE_KEY (RLS blocks publishable / anon keys).
 
 # 3. Load RAG data (pick any)
 python -m scripts.ingest_documents                     # built-in sample docs (quick start)
@@ -172,7 +173,8 @@ and the liveness check at **http://localhost:8000/health**. `scripts/dev.sh` use
 explains each step in plain language — how the question was understood, which tool or data source is
 being used, the automatic number check (✅ / ⚠️), the quality score and the total time. The wording lives
 in `ui/activity_log.py`; the backend adds the facts to each `progress` SSE event (`app/progress.py`).
-The sidebar shows whether the backend is online and offers example questions. Each answer carries a
+The sidebar shows whether the backend and the database are reachable (no preset questions, so testers
+ask their own). Each answer carries a
 fact-check badge: **Verified**, **Self-Corrected** (fixed by the grader's retry) or **⚠️ Warning**.
 
 **Eval & Quality Dashboard** (second page, `ui/dashboard_page.py`; needs `ADMIN_API_KEY` unless
@@ -192,7 +194,7 @@ curl -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
 
 | Method | Path | Body | Returns |
 |--------|------|------|---------|
-| `GET`  | `/health` | — | `{"status":"ok"}` |
+| `GET`  | `/health` | — | `{"status":"ok"\|"degraded","database":"ok"\|"unreachable"}`, always 200 (liveness) |
 | `POST` | `/chat` | `{"query", "session_id"?}` | `{"route","response","ragas"}` |
 | `POST` | `/chat/stream` | `{"query", "session_id"?}` | **SSE**: `progress` → `ttft` → `token`× (`reset` when a new answer message starts, e.g. a grader retry) → `ragas` → `final`; `error` if the graph fails |
 | `POST` | `/feedback` | `{"query","response","is_positive","correction"?}` | `{"message"}` |

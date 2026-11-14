@@ -98,7 +98,7 @@ PROVIDERS: dict[str, Provider] = {p.name: p for p in (
              note="site is rendered client-side; plain HTTP returns an empty shell"),
     Provider("cmc", "https://cmccloud.vn/", r"^/dich-vu(/[^/]+)?$",
              sitemap="https://cmccloud.vn/sitemap.xml", role="own",
-             note="our own product site — ingested as category 'Product', not 'Competitor'"),
+             note="our own product site — ingested as category 'Feature' (our documentation), not 'Competitor'"),
 )}
 DEFAULT_PROVIDERS = [p for p, cfg in PROVIDERS.items() if cfg.role == "competitor"]
 
@@ -415,7 +415,9 @@ def ingest_to_rag(all_pages: dict[str, list[Page]], chunk_size: int, overlap: in
             print(f"  {name}: nothing to ingest")
             continue
         cfg = PROVIDERS[name]
-        category = "Product" if cfg.role == "own" else "Competitor"
+        # Our own site joins our internal documentation (category "Feature"): primary data, searched
+        # by search_cloud_documents; competitor pages stay apart for search_competitor_docs.
+        category = "Feature" if cfg.role == "own" else "Competitor"
         deleted = (supabase.table("cloud_documents").delete()
                    .eq("metadata->>type", "competitor_crawl").eq("metadata->>provider", name)
                    .execute().data or [])

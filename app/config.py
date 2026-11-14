@@ -7,7 +7,10 @@ load_dotenv()
 # provider embedding key is needed — GROQ_API_KEY only pays for the chat calls.
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+# The backend needs a key that bypasses RLS (sql/migrations/002_security.sql denies anon /
+# publishable keys): the new-format secret key (sb_secret_…), or a legacy service_role key in
+# SUPABASE_KEY. SUPABASE_KEY wins when set, so tests / offline evals keep their dummy key.
+SUPABASE_KEY = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_SECRET_KEY")
 # Local Hugging Face embedding model (Qwen3-Embedding-0.6B), truncated via MRL to EMBEDDING_DIM.
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "Qwen/Qwen3-Embedding-0.6B")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "512"))
@@ -60,7 +63,7 @@ def validate_config() -> None:
         for name, value in (
             ("GROQ_API_KEY", GROQ_API_KEY),
             ("SUPABASE_URL", SUPABASE_URL),
-            ("SUPABASE_KEY", SUPABASE_KEY),
+            ("SUPABASE_SECRET_KEY (or SUPABASE_KEY)", SUPABASE_KEY),
         )
         if not value
     ]

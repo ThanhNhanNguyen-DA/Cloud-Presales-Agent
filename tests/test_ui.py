@@ -123,8 +123,15 @@ STREAM = _sse(
 )
 
 
+def _health(database="ok"):
+    return MagicMock(ok=True, **{"json.return_value": {"status": "ok" if database == "ok" else "degraded",
+                                                       "database": database}})
+
+
 def _app():
+    import streamlit as st
     from streamlit.testing.v1 import AppTest
+    st.cache_data.clear()  # /health is cached for 15 s; each test sets its own backend state
     return AppTest.from_file(str(UI_DIR / "streamlit_app.py"), default_timeout=30)
 
 
@@ -147,7 +154,7 @@ def test_page_renders_without_backend():
 
 
 def test_asking_a_question_fills_chat_and_activity_log():
-    with patch("requests.get", return_value=MagicMock(ok=True)), \
+    with patch("requests.get", return_value=_health()), \
          patch("requests.post", _fake_post(STREAM)):
         at = _app().run()
         at.chat_input[0].set_value("Backup 10GB qua 100Mbps?").run()
@@ -165,7 +172,7 @@ def test_asking_a_question_fills_chat_and_activity_log():
 
 
 def test_backend_error_is_shown_in_plain_words():
-    with patch("requests.get", return_value=MagicMock(ok=True)), \
+    with patch("requests.get", return_value=_health()), \
          patch("requests.post", _fake_post(_sse({"type": "error", "message": "x"}))):
         at = _app().run()
         at.chat_input[0].set_value("hi").run()
@@ -178,7 +185,7 @@ def test_answer_table_line_breaks_render_and_original_answer_is_retained():
     answer = "| Dịch vụ | Mô tả |\n| --- | --- |\n| RDS | **Nhanh**<br />• Sao lưu |"
     events = _sse({"type": "token", "text": answer},
                   {"type": "final", "route": "document", "response": answer, "total": 1.0})
-    with patch("requests.get", return_value=MagicMock(ok=True)), \
+    with patch("requests.get", return_value=_health()), \
          patch("requests.post", _fake_post(events)):
         at = _app().run()
         at.chat_input[0].set_value("Giải thích <br> và mô tả RDS").run()
@@ -192,3 +199,12 @@ def test_answer_table_line_breaks_render_and_original_answer_is_retained():
     assert all("**Nhanh**<br>• Sao lưu" in m.value for m in rendered)
     question = next(m for m in at.markdown if m.value == "Giải thích <br> và mô tả RDS")
     assert question.proto.allow_html is False
+
+
+def test_database_outage_is_shown_and_no_preset_questions_are_offered():
+    with patch("requests.get", return_value=_health("unreachable")):
+        at = _app().run()
+    assert not at.exception
+    assert any("Kho dữ liệu (Supabase) không truy cập được" in w.value for w in at.warning)
+    assert not any(b.key and b.key.startswith("example_") for b in at.button)
+    assert [b.label for b in at.button] == ["🆕 Cuộc trò chuyện mới"]

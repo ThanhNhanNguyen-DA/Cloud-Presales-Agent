@@ -1,25 +1,30 @@
 """
 Competitor Agent: how our services compare with competitors.
 
-Two data sources, two tools:
+Data sources:
+- PRIMARY: our own CMC Cloud documentation (search_cloud_documents), for the CMC side of a comparison;
 - the curated mapping matrix (AWS / Azure / GCP -> our equivalent + migration difficulty);
 - crawled public pages of Vietnamese competitors (VNG, FPT, Bizfly, VNPT, Viettel IDC):
-  their products, features, SLAs and list prices (search_competitor_docs).
+  their products, features, SLAs and list prices (search_competitor_docs), secondary / reference only.
 """
 
 from app.agents.tool_agent import run_tool_agent
 from app.graph.state import GraphState
 from app.llm import get_chat_llm
 from app.tools.competitor_tools import find_competitor_mapping, list_all_competitor_services
-from app.tools.rag_tools import search_competitor_docs
+from app.tools.rag_tools import search_cloud_documents, search_competitor_docs
 
-TOOLS = [find_competitor_mapping, list_all_competitor_services, search_competitor_docs]
+TOOLS = [search_cloud_documents, find_competitor_mapping, list_all_competitor_services, search_competitor_docs]
 
 llm = get_chat_llm(temperature=0)
 llm_with_tools = llm.bind_tools(TOOLS)
 
-SYSTEM_PROMPT = """You are the Competitor Agent for the Presales Cloud system.
+SYSTEM_PROMPT = """You are the Competitor Agent for the Presales Cloud system of CMC Cloud (our company).
 Task: help Presales staff position our services against competitors.
+
+Primary data = OUR side: search_cloud_documents (CMC Cloud documentation and product pages). For any
+comparison, look up the CMC Cloud side with it first; competitor data is secondary, for comparison and
+reference only. Never fill a gap on the CMC side with a competitor's figures, and vice versa.
 
 Tools — pick by competitor:
 - AWS / Azure / GCP service -> our equivalent: find_competitor_mapping (or list_all_competitor_services

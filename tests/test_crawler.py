@@ -54,3 +54,19 @@ def test_page_service_name():
 
 def test_join_broken_lines_collapses_whitespace():
     assert join_broken_lines(["FPT ArgoCD 0          đ/ tháng", "   ", "Gói\u00a0\u00a0B"]) == "FPT ArgoCD 0 đ/ tháng\nGói B"
+
+
+def test_own_site_is_ingested_as_internal_documentation():
+    """cmccloud.vn joins the internal docs ("Feature"), primary data; competitors stay "Competitor"."""
+    from unittest.mock import MagicMock, patch
+
+    from scripts.crawl_competitors import ingest_to_rag
+
+    sb = MagicMock()
+    pages = {name: [Page(name, f"https://{name}.example/dich-vu/x", "X | Y", "now", "Nội dung dịch vụ " * 20)]
+             for name in ("cmc", "fpt")}
+    with patch("app.db.supabase_client.supabase", sb), patch("app.tools.embedding_tool.embed_text", return_value=[0.0]):
+        ingest_to_rag(pages, chunk_size=1000, overlap=100)
+    inserted = [row for call in sb.table.return_value.insert.call_args_list for row in call.args[0]]
+    by_provider = {row["metadata"]["provider"]: row["category"] for row in inserted}
+    assert by_provider == {"cmc": "Feature", "fpt": "Competitor"}

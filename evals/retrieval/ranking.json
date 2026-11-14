@@ -365,7 +365,8 @@
     "gold_id": "df6a3790-217d-4f5e-a875-e26802a4909c",
     "gold_service": "JERA Co., Inc.",
     "category": "CaseStudy",
-    "source": "04_Energy_&_Resources.pdf"
+    "source": "04_Energy_&_Resources.pdf",
+    "scope": "casestudy"
   },
   {
     "id": "casestudy-002",
@@ -373,7 +374,8 @@
     "gold_id": "ec02dbf2-46a9-4497-8535-f7206ca79900",
     "gold_service": "ACENTRA HEALTH",
     "category": "CaseStudy",
-    "source": "07_Healthcare.pdf"
+    "source": "07_Healthcare.pdf",
+    "scope": "casestudy"
   },
   {
     "id": "casestudy-003",
@@ -381,7 +383,8 @@
     "gold_id": "6c9571c5-ad1a-4cf7-9228-ac32ce3dca3f",
     "gold_service": "D ID",
     "category": "CaseStudy",
-    "source": "09_Media.pdf"
+    "source": "09_Media.pdf",
+    "scope": "casestudy"
   },
   {
     "id": "casestudy-004",
@@ -389,7 +392,8 @@
     "gold_id": "d4fb037d-2bf1-4caa-b1bb-ce20565ba345",
     "gold_service": "Fidal",
     "category": "CaseStudy",
-    "source": "05_Financial_Services.pdf"
+    "source": "05_Financial_Services.pdf",
+    "scope": "casestudy"
   },
   {
     "id": "casestudy-005",
@@ -397,7 +401,8 @@
     "gold_id": "59d7d99d-80b3-4dc1-882f-6d5357532e9e",
     "gold_service": "International Institute for Management Development IMD",
     "category": "CaseStudy",
-    "source": "03_Education.pdf"
+    "source": "03_Education.pdf",
+    "scope": "casestudy"
   },
   {
     "id": "casestudy-006",
@@ -405,7 +410,8 @@
     "gold_id": "6c881042-a72a-433d-8968-9e8cc83e2575",
     "gold_service": "Siemens Healthineers",
     "category": "CaseStudy",
-    "source": "08_Manufacturing.pdf"
+    "source": "08_Manufacturing.pdf",
+    "scope": "casestudy"
   },
   {
     "id": "casestudy-007",
@@ -413,7 +419,8 @@
     "gold_id": "a2830247-77a0-48ab-8443-ce543e051f7d",
     "gold_service": "Government of the City of Buenos Aires",
     "category": "CaseStudy",
-    "source": "06_Government.pdf"
+    "source": "06_Government.pdf",
+    "scope": "casestudy"
   },
   {
     "id": "casestudy-008",
@@ -421,7 +428,8 @@
     "gold_id": "d4900c15-2282-4a5a-9201-8705ddeed2e4",
     "gold_service": "Airbus",
     "category": "CaseStudy",
-    "source": "02_Defense.pdf"
+    "source": "02_Defense.pdf",
+    "scope": "casestudy"
   },
   {
     "id": "casestudy-009",
@@ -429,7 +437,8 @@
     "gold_id": "c1de84b3-28ca-49d8-b310-348f483ddc53",
     "gold_service": "PETRONAS",
     "category": "CaseStudy",
-    "source": "04_Energy_&_Resources.pdf"
+    "source": "04_Energy_&_Resources.pdf",
+    "scope": "casestudy"
   },
   {
     "id": "casestudy-010",
@@ -437,7 +446,8 @@
     "gold_id": "842d4ff3-4400-45cd-88f6-a9edde652d2a",
     "gold_service": "Pierre Fabre",
     "category": "CaseStudy",
-    "source": "07_Healthcare.pdf"
+    "source": "07_Healthcare.pdf",
+    "scope": "casestudy"
   },
   {
     "id": "casestudy-011",
@@ -445,7 +455,8 @@
     "gold_id": "dab72b99-f32d-41f2-98fd-ac85790516a8",
     "gold_service": "Art Basel",
     "category": "CaseStudy",
-    "source": "09_Media.pdf"
+    "source": "09_Media.pdf",
+    "scope": "casestudy"
   },
   {
     "id": "casestudy-012",
@@ -453,7 +464,8 @@
     "gold_id": "02d17be7-c35b-4f4a-bfb1-c4c76cc58b36",
     "gold_service": "Virgin Money",
     "category": "CaseStudy",
-    "source": "05_Financial_Services.pdf"
+    "source": "05_Financial_Services.pdf",
+    "scope": "casestudy"
   },
   {
     "id": "casestudy-013",
@@ -461,7 +473,8 @@
     "gold_id": "d4b7190a-89ea-4e6b-b9dc-8e8b8a93d4c0",
     "gold_service": "University of South Florida",
     "category": "CaseStudy",
-    "source": "03_Education.pdf"
+    "source": "03_Education.pdf",
+    "scope": "casestudy"
   },
   {
     "id": "casestudy-014",
@@ -469,7 +482,8 @@
     "gold_id": "30d1c0ad-495d-4aff-a5ef-023838bcdf22",
     "gold_service": "HARTING",
     "category": "CaseStudy",
-    "source": "08_Manufacturing.pdf"
+    "source": "08_Manufacturing.pdf",
+    "scope": "casestudy"
   },
   {
     "id": "casestudy-015",
@@ -477,6 +491,7 @@
     "gold_id": "11d04d57-a2aa-4546-9bb6-42629a162ef8",
     "gold_service": "Hellenic Cadastre",
     "category": "CaseStudy",
-    "source": "06_Government.pdf"
+    "source": "06_Government.pdf",
+    "scope": "casestudy"
   }
 ]

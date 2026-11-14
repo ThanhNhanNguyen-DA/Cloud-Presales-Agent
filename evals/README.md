@@ -132,7 +132,7 @@ Trang này cần `ADMIN_API_KEY`, trừ khi đặt `AUTH_DISABLED=true`. Khi ch�
    # .github/workflows/eval-live.yml (workflow_dispatch hoặc nightly)
    - run: python -m evals.eval_grader --live
    - run: python -m evals.eval_e2e --live --ragas
-     env: {GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}, SUPABASE_URL: ..., SUPABASE_KEY: ...}
+     env: {GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}, SUPABASE_URL: ..., SUPABASE_SECRET_KEY: ...}
    - uses: actions/upload-artifact@v4
      with: {name: eval-reports, path: evals/results/}
    ```
