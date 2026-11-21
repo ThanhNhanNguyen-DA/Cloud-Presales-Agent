@@ -1,5 +1,5 @@
 """
-Shared tool-calling loop for the three specialist agents (calculator, document, competitor).
+Shared tool-calling loop for the specialist agents (calculator, document).
 
 Each agent only supplies its system prompt, its tools and its LLM; this module runs the
 loop the same way for all of them:

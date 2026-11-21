@@ -2,9 +2,9 @@
 Benchmark free LLMs for the orchestration roles of the agent (OpenAI-compatible APIs).
 
 Suites (all prompts/tools are the production ones from the app):
-  A. routing  — the supervisor's ROUTING_PROMPT on 54 labelled questions (vi/en, follow-ups
+  A. routing  — the supervisor's ROUTING_PROMPT on 40 labelled questions (vi/en, follow-ups
                 with history, near-miss wording). Metric: accuracy.
-  B. tools    — the specialists' tool schemas on 16 cases. Metric: right tool + right key
+  B. tools    — the specialists' tool schemas on 12 cases. Metric: right tool + right key
                 arguments, or correctly NOT calling a tool when information is missing.
   C. grader   — the Grounding Grader prompt on 10 answer/raw-data pairs (5 correct, 5 with
                 a wrong figure or invented fact). Metric: verdict accuracy.
@@ -32,8 +32,6 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 import app.config  # noqa: F401 - loads .env
 from app.agents.calculator_agent import SYSTEM_PROMPT as CALC_PROMPT
 from app.agents.calculator_agent import TOOLS as CALC_TOOLS
-from app.agents.competitor_agent import SYSTEM_PROMPT as COMP_PROMPT
-from app.agents.competitor_agent import TOOLS as COMP_TOOLS
 from app.agents.document_agent import SYSTEM_PROMPT as DOC_PROMPT
 from app.agents.document_agent import TOOLS as DOC_TOOLS
 from app.graders.self_rag_grader import GROUNDING_GRADER_PROMPT, parse_verdict
@@ -48,8 +46,6 @@ ENDPOINTS = {
 # --------------------------------------------------------------------------- suite A
 H_BACKUP = [("user", "Backup 200GB qua đường 100Mbps mất bao lâu?"),
             ("assistant", "Khoảng 5,6 giờ với hiệu suất mạng 80%.")]
-H_S3 = [("user", "AWS S3 tương đương dịch vụ nào bên mình?"),
-        ("assistant", "AWS S3 tương đương Object Storage, mức độ chuyển đổi: Easy.")]
 H_SLA = [("user", "SLA của Object Storage là bao nhiêu?"),
          ("assistant", "Object Storage cam kết uptime 99,9% mỗi tháng.")]
 ROUTING_CASES = [
@@ -79,25 +75,11 @@ ROUTING_CASES = [
     ("Các Availability Zone hiện có ở đâu?", [], "document"),
     ("Còn Cloud Server thì cam kết bao nhiêu?", H_SLA, "document"),
     ("Tài liệu hướng dẫn tạo VPN site-to-site ở đâu?", [], "document"),
-    # competitor
-    ("AWS S3 tương đương dịch vụ nào bên mình?", [], "competitor"),
-    ("Azure Blob Storage map sang sản phẩm nào?", [], "competitor"),
-    ("Khách đang dùng GCP Compute Engine, chuyển sang mình thì dùng gì?", [], "competitor"),
-    ("What's our equivalent of Amazon RDS?", [], "competitor"),
-    ("So sánh EC2 với Cloud Server của mình", [], "competitor"),
-    ("Migrate từ AWS Lambda sang thì khó không?", [], "competitor"),
-    ("Liệt kê các dịch vụ AWS đã có mapping", [], "competitor"),
-    ("Còn GCP thì sao?", H_S3, "competitor"),
-    ("Azure thì tương đương là gì?", H_S3, "competitor"),
-    ("Khách hỏi Azure SQL Database thì mình đề xuất dịch vụ nào?", [], "competitor"),
-    ("Google Cloud Storage có dịch vụ tương ứng không?", [], "competitor"),
-    ("Độ khó chuyển đổi từ AWS EKS là bao nhiêu?", [], "competitor"),
-    ("Giá Cloud Server của Bizfly rẻ nhất là bao nhiêu?", [], "competitor"),
-    ("VNPT Cloud có dịch vụ Kubernetes không?", [], "competitor"),
-    ("So sánh Object Storage của mình với FPT Cloud", [], "competitor"),
-    ("Viettel IDC cam kết SLA bao nhiêu cho Cloud Server?", [], "competitor"),
-    ("VNG Cloud có GPU cloud không, giá thế nào?", [], "competitor"),
-    ("Khách đang dùng vServer của VNG, mình đề xuất gì?", [], "competitor"),
+    # competitor questions: not supported any more -> general (must not be sent to document)
+    ("AWS S3 tương đương dịch vụ nào bên mình?", [], "general"),
+    ("So sánh EC2 với Cloud Server của mình", [], "general"),
+    ("Giá Cloud Server của Bizfly rẻ nhất là bao nhiêu?", [], "general"),
+    ("Viettel IDC cam kết SLA bao nhiêu cho Cloud Server?", [], "general"),
     # general
     ("Xin chào", [], "general"),
     ("Bạn giúp được gì cho mình?", [], "general"),
@@ -134,12 +116,8 @@ TOOL_CASES = [
     ("doc", "Cloud Server có chứng chỉ PCI-DSS không?", "search_cloud_documents", {}),
     ("doc", "ELB hỗ trợ những giao thức listener nào?", "search_cloud_documents", {}),
     ("doc", "Does Key Management Service support key rotation?", "search_cloud_documents", {}),
-    ("comp", "AWS S3 tương đương dịch vụ nào?", "find_competitor_mapping", {"competitor_service_name": "s3"}),
-    ("comp", "What's the Azure Blob Storage equivalent?", "find_competitor_mapping", {"competitor_service_name": "blob"}),
-    ("comp", "Liệt kê tất cả dịch vụ GCP đã có mapping", "list_all_competitor_services", {"competitor_name": "gcp"}),
-    ("comp", "Amazon RDS chuyển sang thì dùng gì, khó không?", "find_competitor_mapping", {"competitor_service_name": "rds"}),
 ]
-AGENTS = {"calc": (CALC_PROMPT, CALC_TOOLS), "doc": (DOC_PROMPT, DOC_TOOLS), "comp": (COMP_PROMPT, COMP_TOOLS)}
+AGENTS = {"calc": (CALC_PROMPT, CALC_TOOLS), "doc": (DOC_PROMPT, DOC_TOOLS)}
 
 # --------------------------------------------------------------------------- suite C
 RAW_BACKUP = ("calculate_backup_and_cost({'data_volume_gb': 10, 'bandwidth_mbps': 100}) -> "

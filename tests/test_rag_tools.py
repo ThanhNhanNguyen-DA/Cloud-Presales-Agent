@@ -1,4 +1,4 @@
-"""RAG pipeline tests: query embedding, candidate search, reranking, competitor separation."""
+"""RAG pipeline tests: query embedding, candidate search, reranking, scope separation."""
 
 from unittest.mock import MagicMock, patch
 
@@ -7,10 +7,9 @@ import pytest
 from app.tools import rag_tools, reranker
 
 
-def _doc(i, score=0.8, category="Feature", provider=None, content=None):
+def _doc(i, score=0.8, category="Feature", content=None):
     return {"id": str(i), "service_name": f"svc{i}", "category": category, "similarity": score,
-            "content": content or f"content {i}", "metadata": {"source": f"doc{i}.docx",
-                                                              **({"provider": provider} if provider else {})}}
+            "content": content or f"content {i}", "metadata": {"source": f"doc{i}.docx"}}
 
 
 @pytest.fixture
@@ -21,13 +20,13 @@ def rpc(monkeypatch):
         yield sb
 
 
-def test_document_search_excludes_competitor_pages_and_partner_case_studies(rpc):
+def test_document_search_excludes_partner_case_studies(rpc):
     case_study = {**_doc(2), "category": "CaseStudy", "content": "Saxo Bank uses Azure OpenAI"}
     rpc.rpc.return_value.execute.return_value = MagicMock(data=[_doc(1), case_study])
     with patch.object(reranker, "rerank_enabled", return_value=False):
         out = rag_tools.search_cloud_documents.invoke({"query": "SLA?"})
     params = rpc.rpc.call_args.args[1]
-    assert params["exclude_categories"] == ["Competitor", "CaseStudy"] and params["match_count"] == 15
+    assert params["exclude_categories"] == ["CaseStudy"] and params["match_count"] == 15
     assert "svc1" in out and "Source: doc1.docx" in out
     assert "Saxo Bank" not in out          # even if an old RPC ignores the filter
 
@@ -38,12 +37,12 @@ def test_case_studies_only_on_explicit_request(rpc):
     with patch.object(reranker, "rerank_enabled", return_value=False):
         out = rag_tools.search_cloud_documents.invoke({"query": "bank customer story", "category": "CaseStudy"})
     params = rpc.rpc.call_args.args[1]
-    assert params["filter_category"] == "CaseStudy" and params["exclude_categories"] == ["Competitor"]
+    assert params["filter_category"] == "CaseStudy" and params["exclude_categories"] is None
     assert "Saxo Bank" in out
 
 
 def test_falls_back_to_old_rpc_signature_and_filters_in_python(rpc):
-    old_rows = [_doc(1), _doc(2, category="Competitor"), _doc(3)]
+    old_rows = [_doc(1), _doc(2, category="CaseStudy"), _doc(3)]
     rpc.rpc.return_value.execute.side_effect = [RuntimeError("function does not exist"),
                                                 MagicMock(data=old_rows)]
     with patch.object(reranker, "rerank_enabled", return_value=False):
@@ -78,24 +77,6 @@ def test_reranker_failure_does_not_bypass_relevance_check():
         assert result.documents == [] and result.status == "unavailable"
 
 
-def test_competitor_search_filters_category_and_provider(rpc):
-    rpc.rpc.return_value.execute.return_value = MagicMock(
-        data=[{**_doc(1, category="Competitor", provider="bizfly"),
-               "metadata": {"source": "https://bizflycloud.vn/cloud-server/bang-gia",
-                            "provider": "bizfly", "fetched_at": "2026-11-05T01:00:00"}}])
-    with patch.object(reranker, "rerank_enabled", return_value=False):
-        out = rag_tools.search_competitor_docs.invoke({"query": "giá cloud server", "provider": "Bizfly"})
-    params = rpc.rpc.call_args.args[1]
-    assert params["filter_category"] == "Competitor" and params["filter_provider"] == "bizfly"
-    assert "fetched 2026-11-05" in out and "cite the source" in out
-
-
-def test_competitor_search_rejects_unknown_provider(rpc):
-    out = rag_tools.search_competitor_docs.invoke({"query": "q", "provider": "aws"})
-    assert "Unknown provider" in out
-    rpc.rpc.assert_not_called()
-
-
 def test_llm_cannot_set_thresholds_any_more():
     from langchain_core.utils.function_calling import convert_to_openai_tool
     props = convert_to_openai_tool(rag_tools.search_cloud_documents)["function"]["parameters"]["properties"]
@@ -112,11 +93,6 @@ def test_embed_query_uses_the_query_prompt():
     assert model.encode.call_args.kwargs["prompt_name"] == "query"
 
 
-def test_competitor_agent_has_the_new_tool():
-    from app.agents.competitor_agent import TOOLS
-    assert "search_competitor_docs" in {t.name for t in TOOLS}
-
-
 def test_empty_category_filter_retries_without_it(rpc):
     rpc.rpc.return_value.execute.side_effect = [MagicMock(data=[]), MagicMock(data=[_doc(7)])]
     with patch.object(reranker, "rerank_enabled", return_value=False):
@@ -126,7 +102,3 @@ def test_empty_category_filter_retries_without_it(rpc):
     assert "svc7" in out
 
 
-def test_competitor_agent_reads_our_documents_for_the_cmc_side():
-    from app.agents.competitor_agent import SYSTEM_PROMPT, TOOLS
-    assert "search_cloud_documents" in {t.name for t in TOOLS}
-    assert "Primary data = OUR side" in SYSTEM_PROMPT

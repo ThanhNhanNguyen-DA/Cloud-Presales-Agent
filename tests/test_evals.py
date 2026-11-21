@@ -22,10 +22,10 @@ def test_offline_e2e_passes_and_catches_an_isolation_leak(monkeypatch, tmp_path)
     memory = json.loads(out.read_text())["summary"]["tier1_routing"]["memory"]
     assert memory["pending_correction_excluded"] and memory["injection_tags_neutralised"]
 
-    # Remove the Python-side scope re-check: competitor chunks now reach our document search.
+    # Remove the Python-side scope re-check: partner case studies now reach our document search.
     monkeypatch.setattr("app.tools.rag_tools.eligible_documents", lambda rows, **_: rows)
     assert eval_e2e.main() == 1
-    assert "competitor chunk" in out.with_suffix(".md").read_text()
+    assert "case study chunk" in out.with_suffix(".md").read_text()
 
 
 def test_ragas_metrics_per_route_and_grader_cross_check(monkeypatch):
@@ -40,7 +40,7 @@ def test_ragas_metrics_per_route_and_grader_cross_check(monkeypatch):
         {"id": "calc", "route": "calculator", "question": "q", "answer": "đúng", "verdicts": ["PASS"]},
         {"id": "doc", "route": "document", "question": "q", "answer": "sai", "verdicts": ["PASS"],
          "required_facts": ["99.9", ["10%", "mười"]]},
-        {"id": "comp", "route": "competitor", "question": "q", "answer": "đúng", "verdicts": ["FAIL", "FAIL"]},
+        {"id": "comp", "route": "document", "question": "q", "answer": "đúng", "verdicts": ["FAIL", "FAIL"]},
         {"id": "gen", "route": "general", "question": "q", "answer": "hi", "verdicts": []},
     ]
     means = eval_ragas.score_records(records)

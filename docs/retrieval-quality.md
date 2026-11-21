@@ -73,9 +73,9 @@ python -m scripts.eval_retrieval_production --hybrid --out /tmp/hybrid.json
 Hai lần chạy dùng cùng corpus, embedding model, reranker và bộ câu hỏi. Script gọi
 chung hàm `retrieve_documents` với ứng dụng; thu toàn bộ điểm để review rồi áp dụng
 cutoff/top-k runtime khi tính Hit@1, Hit@k và MRR@k. Không dùng category của gold label
-để lọc ứng viên. Nếu mẫu có `scope=competitor`, nó dùng bộ lọc competitor; `scope=casestudy`
+để lọc ứng viên. `scope=casestudy`
 nghĩa là câu hỏi yêu cầu customer story (Microsoft/Azure), vốn chỉ được tìm khi agent yêu cầu
-category `CaseStudy`; mặc định scope=own (tài liệu CMC Cloud, không gồm đối thủ và case study,
+category `CaseStudy`; mặc định scope=own (tài liệu CMC Cloud, không gồm case study,
 giống `rag_tools.document_scope`). Truy xuất ở đây không đánh giá quyết định viết lại
 query/category của LLM.
 

@@ -123,7 +123,7 @@ def test_parse_verdict(reply, expected):
 
 @pytest.mark.parametrize("reply, route", [
     ("calculator", "calculator"), ("Calculator.", "calculator"), ("**document**", "document"),
-    ("Route: competitor", "competitor"), ("no idea", "general"), ("", "general"),
+    ("Route: document", "document"), ("competitor", "general"), ("no idea", "general"), ("", "general"),
 ])
 def test_parse_route(reply, route):
     assert parse_route(reply) == route
@@ -308,8 +308,6 @@ def test_grader_sees_the_user_question():
 
 @pytest.mark.parametrize("tool_path, param", [
     ("app.tools.rag_tools.search_cloud_documents", "category"),
-    ("app.tools.competitor_tools.find_competitor_mapping", "competitor_name"),
-    ("app.tools.competitor_tools.find_competitor_mapping", "competitor_service_name"),
 ])
 def test_optional_tool_params_accept_null(tool_path, param):
     # Groq validates tool calls server-side: a non-nullable schema + a null argument = HTTP 400.

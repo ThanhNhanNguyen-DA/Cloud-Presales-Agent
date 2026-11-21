@@ -34,10 +34,9 @@ def test_keyword_terms_are_literal_multilingual_and_keep_product_codes():
 
 def test_provenance_and_scope_rechecked_after_retrieval():
     rows = [doc("own"), doc("sample", metadata={"source": "sample_data"}),
-            doc("competitor", category="Competitor"), doc("missing", metadata={}),
-            doc("misclassified", metadata={"source": "competitor-site", "role": "competitor"}),
+            doc("case-study", category="CaseStudy"), doc("missing", metadata={}),
             doc("pending", metadata={"source": "draft.pdf", "review_status": "pending"})]
-    assert [d["id"] for d in eligible_documents(rows, exclude=["Competitor"])] == ["own"]
+    assert [d["id"] for d in eligible_documents(rows, exclude=["CaseStudy"])] == ["own"]
 
 
 def test_hybrid_recovers_a_passage_missed_by_vector_and_reranks_it(monkeypatch):
@@ -48,10 +47,10 @@ def test_hybrid_recovers_a_passage_missed_by_vector_and_reranks_it(monkeypatch):
     with patch.object(rag_tools, "_vector_search", return_value=[vector]), \
          patch.object(rag_tools, "supabase") as sb, patch.object(reranker, "get_reranker", return_value=model):
         sb.rpc.return_value.execute.return_value = MagicMock(data=[keyword])
-        result = rag_tools.retrieve_documents("ELB TLS", exclude=["Competitor"])
+        result = rag_tools.retrieve_documents("ELB TLS", exclude=["CaseStudy"])
     assert result.method == "hybrid" and result.rerank_status == "scored"
     assert [d["id"] for d in result.documents] == ["keyword"]
-    assert sb.rpc.call_args.args[1]["exclude_categories"] == ["Competitor"]
+    assert sb.rpc.call_args.args[1]["exclude_categories"] == ["CaseStudy"]
 
 
 def test_keyword_failure_is_visible_and_vector_results_still_checked():

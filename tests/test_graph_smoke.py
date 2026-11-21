@@ -20,8 +20,6 @@ def test_graph_runs_end_to_end():
             return MagicMock(content="calculator")
         elif "sla" in question or "documentation" in question:
             return MagicMock(content="document")
-        elif "aws" in question or "equivalent" in question:
-            return MagicMock(content="competitor")
         else:
             return MagicMock(content="general")
     
@@ -41,14 +39,13 @@ def test_graph_runs_end_to_end():
         ("Hello", "general"),
         ("How long does a 10GB backup take over a 100Mbps connection?", "calculator"),
         ("What is the SLA documentation for Object Storage?", "document"),
-        ("What service is equivalent to AWS S3 on our platform?", "competitor")
+        ("What service is equivalent to AWS S3 on our platform?", "general"),   # competitor agent removed
     ]
     
     with patch('app.graph.supervisor.llm') as mock_supervisor_llm, \
          patch('app.graph.builder.llm') as mock_builder_llm, \
          patch('app.agents.calculator_agent.llm_with_tools') as mock_calc_llm, \
-         patch('app.agents.document_agent.llm_with_tools') as mock_doc_llm, \
-         patch('app.agents.competitor_agent.llm_with_tools') as mock_comp_llm:
+         patch('app.agents.document_agent.llm_with_tools') as mock_doc_llm:
         
         mock_supervisor_llm.invoke = mock_supervisor_response
         mock_builder_llm.invoke = mock_general_response
@@ -60,8 +57,6 @@ def test_graph_runs_end_to_end():
         mock_calc_llm.invoke = MagicMock(return_value=mock_calc_response)
         mock_doc_llm.invoke = MagicMock(return_value=MagicMock(
             content="The Object Storage SLA is 99.9% monthly uptime.", tool_calls=None))
-        mock_comp_llm.invoke = MagicMock(return_value=MagicMock(
-            content="**AWS S3 → Object Storage**.", tool_calls=None))
         
         graph = build_graph()
         

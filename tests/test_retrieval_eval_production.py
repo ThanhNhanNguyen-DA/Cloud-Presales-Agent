@@ -23,21 +23,23 @@ def test_reports_runtime_hit_rate_and_keeps_unjudged_labels_unknown():
     assert report["metrics"]["hit_at_1"] == 0.0
     assert report["metrics"]["hit_at_k"] == 1.0 and report["metrics"]["mrr_at_k"] == 0.5
     args = retrieve.call_args.kwargs
-    assert args["category"] is None and args["exclude"] == ["Competitor", "CaseStudy"]
+    assert args["category"] is None and args["exclude"] == ["CaseStudy"]
     assert args["min_score"] == 0.0
     candidates = report["queries"][0]["candidates"]
     assert [c["relevant"] for c in candidates] == [None, True, None]
 
 
-def test_competitor_evaluation_uses_provider_scope_and_reports_degradation():
+def test_degraded_retrieval_is_reported():
     returned = RetrievalResult([], "vector", "scored", 0.0, ["Keyword unavailable"])
-    with patch.object(evaluation, "retrieve_documents", return_value=returned) as retrieve:
-        report = evaluation.evaluate_queries([{"question": "Bizfly pricing?", "scope": "competitor",
-                                               "provider": "bizfly", "answerable": False}])
-    assert retrieve.call_args.kwargs["category"] == "Competitor"
-    assert retrieve.call_args.kwargs["provider"] == "bizfly"
+    with patch.object(evaluation, "retrieve_documents", return_value=returned):
+        report = evaluation.evaluate_queries([{"question": "ELB pricing?", "answerable": False}])
     assert report["metrics"]["degraded_queries"] == 1
     assert report["metrics"]["hit_at_k"] is None
+
+
+def test_competitor_scope_is_rejected():
+    with pytest.raises(ValueError, match="own or casestudy"):
+        evaluation.evaluate_queries([{"question": "Bizfly pricing?", "scope": "competitor"}])
 
 
 def test_unscored_results_cannot_be_used_to_calibrate():
@@ -51,6 +53,6 @@ def test_case_study_scope_is_declared_by_the_dataset_not_the_gold_label():
     with patch.object(evaluation, "retrieve_documents", return_value=returned) as retrieve:
         evaluation.evaluate_queries([{"question": "Saxo Bank Copilot?", "scope": "casestudy", "gold_id": "g"}])
         assert retrieve.call_args.kwargs["category"] == "CaseStudy"
-        assert retrieve.call_args.kwargs["exclude"] == ["Competitor"]
+        assert retrieve.call_args.kwargs["exclude"] is None
         evaluation.evaluate_queries([{"question": "Saxo Bank Copilot?", "category": "CaseStudy", "gold_id": "g"}])
-        assert retrieve.call_args.kwargs["exclude"] == ["Competitor", "CaseStudy"]   # gold label ignored
+        assert retrieve.call_args.kwargs["exclude"] == ["CaseStudy"]   # gold label ignored

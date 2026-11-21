@@ -11,7 +11,6 @@ from __future__ import annotations
 ROUTE_LABELS = {
     "calculator": ("🧮", "Tính toán chi phí / cấu hình"),
     "document": ("📚", "Tra cứu tài liệu sản phẩm"),
-    "competitor": ("🆚", "So sánh với đối thủ"),
     "general": ("💬", "Trò chuyện chung"),
 }
 
@@ -20,9 +19,6 @@ TOOL_LABELS = {
     "size_web_app_vm": "công cụ ước tính cấu hình máy chủ",
     "size_database_storage": "công cụ ước tính dung lượng database",
     "search_cloud_documents": "kho tài liệu sản phẩm",
-    "search_competitor_docs": "dữ liệu website đối thủ",
-    "find_competitor_mapping": "bảng đối chiếu dịch vụ AWS/Azure/GCP",
-    "list_all_competitor_services": "bảng đối chiếu dịch vụ AWS/Azure/GCP",
 }
 
 
@@ -69,7 +65,7 @@ def entries_for_event(event: dict, t: float, ctx: dict | None = None) -> list[di
             if d.get("used_corrections"):
                 out.append(_entry(t, "📝", "Áp dụng góp ý đã được duyệt trước đây"))
             return out
-        if node in ("calculator", "document", "competitor"):
+        if node in ("calculator", "document"):
             tools = d.get("tools") or []
             if not tools:
                 return [_entry(t, "❓", "Chưa đủ thông tin để tính / tra cứu — sẽ hỏi lại bạn", "warn")]

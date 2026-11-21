@@ -111,8 +111,8 @@ with st.sidebar:
         st.error("Không kết nối được tới hệ thống", icon="🔴")
         st.caption(f"Kiểm tra backend tại {API_BASE_URL}")
     elif health.get("database") == "unreachable":
-        st.warning("Kho dữ liệu (Supabase) không truy cập được: các câu hỏi cần tra cứu tài liệu, "
-                   "đối thủ sẽ báo lỗi. Tính toán chi phí / cấu hình vẫn dùng được.", icon="🟠")
+        st.warning("Kho dữ liệu (Supabase) không truy cập được: các câu hỏi cần tra cứu tài liệu "
+                   "sẽ báo lỗi. Tính toán chi phí / cấu hình vẫn dùng được.", icon="🟠")
     else:
         st.success("Hệ thống sẵn sàng", icon="🟢")
 
@@ -133,7 +133,7 @@ with st.sidebar:
 
 # --------------------------------------------------------------------------- layout
 st.title("☁️ Trợ lý Cloud Presales")
-st.caption("Tính chi phí & cấu hình · tra cứu tài liệu SLA / bảo mật / tính năng · so sánh với đối thủ")
+st.caption("Tính chi phí & cấu hình · tra cứu tài liệu SLA / bảo mật / tính năng")
 
 chat_col, log_col = st.columns([0.64, 0.36], gap="large")
 

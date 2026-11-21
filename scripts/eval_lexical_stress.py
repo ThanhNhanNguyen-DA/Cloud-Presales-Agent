@@ -1,6 +1,5 @@
 """
-Keyword-sensitive retrieval check: abbreviations, product names, unaccented typing and exact
-prices — the cases embeddings handle poorly (evals/retrieval/lexical_stress.json).
+Keyword-sensitive retrieval check: abbreviations, product names and unaccented typing — the cases embeddings handle poorly (evals/retrieval/lexical_stress.json).
 
 A query passes when an accepted passage (top 4, after reranking and the cutoff) belongs to an
 expected service (`expect`, substring of service_name) or contains `expect_content`.
@@ -16,7 +15,7 @@ import json
 import time
 from pathlib import Path
 
-from app.tools.rag_tools import COMPETITOR_CATEGORY, document_scope, retrieve_documents
+from app.tools.rag_tools import document_scope, retrieve_documents
 
 
 def passes(item: dict, documents: list[dict]) -> list[bool]:
@@ -33,10 +32,8 @@ def run(items: list[dict], hybrid: bool) -> dict:
     hit1 = hit4 = 0
     seconds, misses = [], []
     for item in items:
-        scope = ({"category": COMPETITOR_CATEGORY} if item["scope"] == "competitor"
-                 else document_scope())
         started = time.perf_counter()
-        result = retrieve_documents(item["question"], hybrid=hybrid, **scope)
+        result = retrieve_documents(item["question"], hybrid=hybrid, **document_scope())
         seconds.append(time.perf_counter() - started)
         marks = passes(item, result.documents)
         hit1 += bool(marks) and marks[0]

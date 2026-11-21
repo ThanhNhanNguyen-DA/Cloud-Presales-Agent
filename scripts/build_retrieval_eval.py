@@ -7,7 +7,7 @@ retrieval quality can be measured without hand labelling (Hit@k / MRR in
 scripts/eval_retrieval.py). Chunks that carry no answerable fact (menus, "Không áp dụng",
 captions) are rejected by the LLM and skipped.
 
-    python -m scripts.build_retrieval_eval --per-category Feature=45 CaseStudy=15 Competitor=30
+    python -m scripts.build_retrieval_eval --per-category Feature=45 CaseStudy=15
     → data/eval/retrieval_eval.json   [{id, question, gold_id, gold_service, category, source}]
 """
 

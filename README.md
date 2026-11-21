@@ -14,7 +14,7 @@ Presales engineers repeat the same technical answers — SLAs, security, VM sizi
 
 An AI agent behind one chat box:
 
-- A **supervisor** classifies each question and routes it to the right specialist — cost/sizing, documentation lookup, or competitor comparison.
+- A **supervisor** classifies each question and routes it to the right specialist — cost/sizing or documentation lookup. (Competitor comparison was removed: such questions get a plain "not supported" answer.)
 - Each specialist **must use real tools** (calculators, vector search, SQL); the model may not invent numbers.
 - A **Grounding Grader** fact-checks every answer against the raw tool output *before it reaches the user* (see [Answer evaluation](#answer-evaluation)).
 - A **self-learning loop** stores human corrections and applies them to similar future questions — no fine-tuning.
@@ -26,11 +26,11 @@ An AI agent behind one chat box:
    question     │                     SUPERVISOR                        │
  ───────────────▶  1. retrieve_past_experiences()  (mandatory recall)   │
                 │  2. classify intent → route                           │
-                └───────┬───────────┬───────────┬───────────┬───────────┘
-                        │           │           │           │
-                  calculator     document    competitor   general
-                        │           │           │           │
-                        ▼           ▼           ▼           │
+                └───────┬───────────┬───────────────────────┬───────────┘
+                        │           │                       │
+                  calculator     document                 general
+                        │           │                       │
+                        ▼           ▼                       │
                  ┌─────────────────────────────────┐        │
                  │ specialist (tool calling)        │        │
                  │ appends raw_tool_output to state │        │
@@ -41,22 +41,21 @@ An AI agent behind one chat box:
                        └───┬────────────┬────┘               │
                     retry  │            │  pass / exhausted   ▼
              (≤1, SAME     │            └────────▶ END ◀──────┘
-              specialist,  └──────────▶ calculator | document | competitor
+              specialist,  └──────────▶ calculator | document
               + feedback)
 ```
 
 ### Where the LLM is used
 
-Called at **six** places in the request path (below), plus the RAGAS judge for the live scorecard — one extra call per answer (faithfulness; answer relevancy uses only embeddings). Vectorisation is **not** LLM work — embeddings run locally on Qwen, so the Groq key only pays for reasoning.
+Called at **five** places in the request path (below), plus the RAGAS judge for the live scorecard — one extra call per answer (faithfulness; answer relevancy uses only embeddings). Vectorisation is **not** LLM work — embeddings run locally on Qwen, so the Groq key only pays for reasoning.
 
 | # | Task | File | Temp | Mechanism |
 |---|------|------|:----:|-----------|
 | 1 | Intent routing | [`graph/supervisor.py`](app/graph/supervisor.py) | 0 | Prompt → one word |
 | 2 | Calculation & sizing | [`agents/calculator_agent.py`](app/agents/calculator_agent.py) | 0 | Function calling |
 | 3 | Document lookup (RAG) | [`agents/document_agent.py`](app/agents/document_agent.py) | 0 | Function calling |
-| 4 | Competitor mapping | [`agents/competitor_agent.py`](app/agents/competitor_agent.py) | 0 | Function calling |
-| 5 | General answer | [`graph/builder.py`](app/graph/builder.py) | 0.3 | Direct, no tools |
-| 6 | Grounding grader | [`graders/self_rag_grader.py`](app/graders/self_rag_grader.py) | 0 | Prompt → PASS/FAIL |
+| 4 | General answer | [`graph/builder.py`](app/graph/builder.py) | 0.3 | Direct, no tools |
+| 5 | Grounding grader | [`graders/self_rag_grader.py`](app/graders/self_rag_grader.py) | 0 | Prompt → PASS/FAIL |
 
 All calls go through one wrapper, [`app/llm.py`](app/llm.py): an ordered model chain (agents: `openai/gpt-oss-120b` → `openai/gpt-oss-20b` → `gemini:gemini-3.5-flash-lite`; supervisor: `qwen/qwen3.8-27b` → `openai/gpt-oss-120b`; see `scripts/eval_orchestrator.py`) that switches model the moment one is rate-limited, and — if all are exhausted — waits out the limit (honouring `retry-after`) and retries, so a free-tier rate limit rides out instead of crashing. Every prompt follows the same recipe: **role · context · task · output format · anti-hallucination constraints**.
 
@@ -65,12 +64,11 @@ All calls go through one wrapper, [`app/llm.py`](app/llm.py): an ordered model c
 | Table | Role |
 |-------|------|
 | `cloud_documents` | RAG corpus: `content` + `embedding VECTOR(512)` + metadata |
-| `cloud_competitor_mapping` | AWS/Azure/GCP → local service mapping + migration difficulty |
 | `cloud_service_pricing` | VM / storage pricing reference rows |
 | `cloud_feedback_memory` | Episodic memory: query/response + `is_positive` + `user_correction` + embedding |
 | `cloud_conversation_history` | Multi-turn memory: one row per message (`session_id`, `role`, `content`, `route`) |
 
-Text is vectorised by **Qwen3-Embedding-0.6B**, truncated via Matryoshka to **512 dims** and L2-normalised; two RPC functions do cosine search (HNSW index). Documents are chunked **structure-aware** (DOCX by heading + tables, PDF per case study, recursive split for the rest), not blind fixed-length cuts. `search_cloud_documents` searches CMC Cloud's own documents only: competitor pages are never included, and the Microsoft/Azure customer stories (category `CaseStudy`) only when the agent explicitly asks for case studies (`rag_tools.document_scope`).
+Text is vectorised by **Qwen3-Embedding-0.6B**, truncated via Matryoshka to **512 dims** and L2-normalised; two RPC functions do cosine search (HNSW index). Documents are chunked **structure-aware** (DOCX by heading + tables, PDF per case study, recursive split for the rest), not blind fixed-length cuts. `search_cloud_documents` searches CMC Cloud's own documents only: the Microsoft/Azure customer stories (category `CaseStudy`) only when the agent explicitly asks for case studies (`rag_tools.document_scope`).
 
 ### Retrieval pipeline
 
@@ -84,9 +82,7 @@ Answers cover the supported parts and identify missing facts. See the
 reviewed negative queries and a separate validation split. The table below records
 the earlier experiments, not a benchmark of the new hybrid path.
 
-The LLM only chooses the query and an optional category/provider; counts and thresholds are fixed.
-`search_cloud_documents` searches **our** docs and excludes crawled competitor pages;
-`search_competitor_docs` (competitor agent) searches only those pages, per provider.
+The LLM only chooses the query and an optional category; counts and thresholds are fixed.
 Measured with `scripts/eval_retrieval.py` on 60 generated questions (`scripts/build_retrieval_eval.py`):
 
 | Retrieval | Hit@1 | Hit@3 | MRR@10 | ms/query |
@@ -147,15 +143,14 @@ test -f .env || cp .env.example .env                 # fill in GROQ_API_KEY, SUP
 ```bash
 # 2. Database — run sql/schema.sql, sql/seed_data.sql, then sql/migrations/*.sql in order,
 #    in the Supabase SQL Editor (python -m app.db.run_migration prints the exact SQL).
-#    Creates 5 tables + 2 RPC + pgvector, the feedback review columns, and Row Level Security.
+#    Creates the tables + RPCs + pgvector, the feedback review columns and Row Level Security;
+#    005 removes the old competitor data.
 #    Use the secret key (sb_secret_…) as SUPABASE_SECRET_KEY, or a legacy service_role key as
 #    SUPABASE_KEY (RLS blocks publishable / anon keys).
 
 # 3. Load RAG data (pick any)
 python -m scripts.ingest_documents                     # built-in sample docs (quick start)
 python -m scripts.ingest_files ./docs --category General   # your PDF/DOCX/TXT/MD
-python -m scripts.crawl_competitors                    # crawl VN competitors' product/pricing pages → data/competitors/ (review)
-python -m scripts.crawl_competitors --from-files --ingest   # → cloud_documents, category "Competitor" (replaces the previous crawl)
 
 # 4. Run both services (Ctrl+C stops both)
 bash scripts/dev.sh
@@ -251,11 +246,11 @@ app/
   main.py                      # FastAPI: /chat, /chat/stream, /feedback, /admin/feedback, /health
   security.py                  # API keys, admin key, rate limiting
   observability.py             # logging with request ids, per-request LLM metrics
-  db/ · tools/                 # Supabase (lazy client); calc/RAG/competitor/memory/conversation tools
+  db/ · tools/                 # Supabase (lazy client); calc/RAG/memory/conversation tools
   agents/                      # tool_agent.py (shared tool loop) + 3 thin specialists (prompt + tools)
   graders/ · evaluation/       # grounding grader; RAGAS metric library
   graph/                       # state, supervisor (routing), builder
-scripts/                       # ingest_documents/files, crawl_competitors, run_ragas_eval, chunkers
+scripts/                       # ingest_documents/files, run_ragas_eval, chunkers
 data/eval/ · sql/ · ui/ · tests/
 ```
 

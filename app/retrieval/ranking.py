@@ -127,7 +127,7 @@ def reciprocal_rank_fusion(*rankings: list[dict], limit: int = 30, k: int = 60) 
 
 
 def eligible_documents(rows: list[dict], *, category: str | None = None,
-                       exclude: list[str] | None = None, provider: str | None = None) -> list[dict]:
+                       exclude: list[str] | None = None) -> list[dict]:
     """Re-check scope and provenance even when an old RPC ignores the filters."""
     result = []
     for row in rows:
@@ -135,10 +135,6 @@ def eligible_documents(rows: list[dict], *, category: str | None = None,
         if category and row.get("category") != category:
             continue
         if row.get("category") in (exclude or []):
-            continue
-        if "Competitor" in (exclude or []) and meta.get("role") == "competitor":
-            continue
-        if provider and meta.get("provider") != provider:
             continue
         source = str(meta.get("source") or "").strip()
         if not source or source.lower() == "sample_data" or not str(row.get("content") or "").strip():

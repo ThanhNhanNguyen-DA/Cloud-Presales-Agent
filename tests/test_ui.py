@@ -28,10 +28,9 @@ def test_supervisor_step_is_explained_in_plain_words():
 
 
 def test_tools_are_named_for_humans_not_by_function_name():
-    out = _texts({"type": "progress", "node": "competitor",
-                  "detail": {"tools": ["find_competitor_mapping", "list_all_competitor_services",
-                                       "search_competitor_docs"], "found_data": False}})
-    assert out[0] == "Đã dùng: bảng đối chiếu dịch vụ AWS/Azure/GCP, dữ liệu website đối thủ"
+    out = _texts({"type": "progress", "node": "document",
+                  "detail": {"tools": ["search_cloud_documents", "size_web_app_vm"], "found_data": False}})
+    assert out[0] == "Đã dùng: kho tài liệu sản phẩm, công cụ ước tính cấu hình máy chủ"
     assert "Không tìm thấy" in out[1]
     assert "_" not in " ".join(out)
 
@@ -77,7 +76,7 @@ def test_small_talk_gets_no_quality_score():
 def test_format_and_badge():
     line = format_entry({"t": 1.2, "icon": "🧭", "text": "abc", "level": "info"})
     assert "+1,2s" in line and "abc" in line
-    assert route_badge("competitor") == "🆚 So sánh với đối thủ"
+    assert route_badge("competitor").startswith("❔")   # route removed
     assert route_badge(None).startswith("❔")
 
 

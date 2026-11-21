@@ -512,3 +512,38 @@ Cấu hình mới: `HYBRID_SEARCH_ENABLED=true` mặc định; keyword channel c
 - **`seed_data.sql` vẫn chưa chạy:** bảng mapping và bảng giá đều 0 dòng. Lưu ý: giá trong file seed (5.000 VND/giờ…) trông giống dữ liệu mẫu, cần thay bằng giá thật trước khi dùng.
 - **Gán nhãn để hiệu chỉnh ngưỡng:** cần ≥ 73 câu không có đáp án mỗi tập (cho mức 5%).
 - **Gõ không dấu** với từ không phải tên sản phẩm ("can bang tai") vẫn phụ thuộc vào vector; cân nhắc `unaccent` trong một migration sau.
+
+---
+
+# Đợt 6 (21/11/2026): Gỡ bỏ Competitor Agent
+
+**Code:**
+- Đã xóa `app/agents/competitor_agent.py`, `app/tools/competitor_tools.py`, tool `search_competitor_docs`, bộ lọc `provider`, crawler `scripts/crawl_competitors.py` và test của nó.
+- Graph còn 2 specialist (calculator, document) cùng nhánh general. Supervisor đưa câu hỏi về đối thủ vào `general`, và câu trả lời nói rõ là không hỗ trợ.
+- Đã gỡ route `competitor` khỏi state, grader, khung nhật ký và dashboard.
+- Bộ đánh giá `eval_e2e`:
+  - 6 case về đối thủ được chuyển thành `competitor-unsupported`: route `general`, không gọi tool, không được bịa giá hay dịch vụ.
+  - Tier 2 (cô lập dữ liệu) giờ kiểm tra rằng case study Azure không lọt vào tìm kiếm mặc định.
+- Đã cập nhật test, script đánh giá, README và docs.
+
+**DB:** migration `sql/migrations/005_remove_competitor.sql` đã được áp dụng.
+- Xóa 1361 đoạn `Competitor` khỏi `cloud_documents`.
+- Xóa bảng `cloud_competitor_mapping` (5 dòng) và index `idx_cloud_documents_provider`.
+- `cloud_documents`: 3567 → **2206** đoạn.
+- Các migration cũ giữ nguyên, nên cài mới vẫn chạy đúng thứ tự `schema.sql` → 002…005.
+- RPC vẫn có tham số `filter_provider` (không còn được dùng, mặc định NULL).
+
+**Sự cố đã khắc phục:**
+- Lần chạy đầu của migration có điều kiện `metadata.type='competitor_crawl'`, nên **xóa nhầm 208 đoạn trang sản phẩm CMC** (`role=own`).
+- Đã nạp lại đủ 208 đoạn từ `data/competitors/cmc.json`, bằng đúng phiên bản crawler đã dùng ban đầu.
+- File migration đã được sửa để chỉ xóa theo `category='Competitor'` hoặc `role='competitor'`.
+
+**Sao lưu:** `data/backup_competitor_2026-11-21/` (khoảng 15 MB, không có trong git) chứa các đoạn đã xóa (kèm embedding), bảng mapping và file cào.
+
+**Giữ lại:**
+- 2 dòng lịch sử hội thoại cũ có route `competitor` (lịch sử chat của người dùng).
+- File `data/competitors/cmc.json` (trang sản phẩm của mình).
+
+**Kiểm chứng:**
+- 293 test đều qua, linter sạch.
+- Chạy thật: "AWS S3 tương đương gì?" được đưa vào `general` và nhận câu trả lời không hỗ trợ; câu hỏi về ELB vẫn tìm đúng tài liệu.

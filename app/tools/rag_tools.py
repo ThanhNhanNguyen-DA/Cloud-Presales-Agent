@@ -1,17 +1,14 @@
 """
 RAG tools: semantic search over `cloud_documents` with cross-encoder reranking.
 
-Pipeline (both tools):
+Pipeline:
   vector candidates + optional keyword candidates -> reciprocal rank fusion
   -> provenance/scope checks -> rerank -> relevance cutoff -> top TOP_K with sources.
 
-The LLM chooses only the query (and a category / provider filter); thresholds and counts
+The LLM chooses only the query (and a category filter); thresholds and counts
 are fixed here — the model used to pick values like match_count=10, threshold=0.5.
 
-* search_cloud_documents — OUR documentation (SLA, security, features…); crawled
-  competitor pages are excluded so a competitor's figures are never presented as ours.
-* search_competitor_docs — crawled public pages of Vietnamese competitors (category
-  "Competitor"), optionally for one provider.
+* search_cloud_documents — OUR documentation (SLA, security, features…).
 """
 
 from __future__ import annotations
@@ -32,11 +29,9 @@ logger = logging.getLogger(__name__)
 CANDIDATES = 15            # vector-search candidates handed to the reranker
 TOP_K = 4                  # chunks returned to the agent
 VECTOR_THRESHOLD = 0.3     # loose: the reranker does the real filtering
-COMPETITOR_CATEGORY = "Competitor"
 # Microsoft/Azure customer stories (scripts/pdf_casestudy_chunker.py): partner reference
 # material, not CMC Cloud's own documentation. Searched only when explicitly requested.
 CASE_STUDY_CATEGORY = "CaseStudy"
-COMPETITOR_PROVIDERS = ("vng", "fpt", "bizfly", "vnpt", "viettelidc", "viettel")
 
 
 @dataclass
@@ -61,18 +56,18 @@ def _missing_rpc(exc: Exception) -> bool:
     )
 
 
-def _vector_search(query: str, *, category: str | None = None, exclude: list[str] | None = None,
-                   provider: str | None = None) -> list[dict]:
+def _vector_search(query: str, *, category: str | None = None,
+                   exclude: list[str] | None = None) -> list[dict]:
     """
-    Candidates from the RPC. Uses the migration-003 signature (exclude_categories,
-    filter_provider); if the database hasn't been migrated yet, falls back to the original
+    Candidates from the RPC. Uses the migration-003 signature (exclude_categories);
+    if the database hasn't been migrated yet, falls back to the original
     signature and applies the same filters in Python.
     """
     params = {"query_embedding": embed_query(query), "match_threshold": VECTOR_THRESHOLD,
               "match_count": CANDIDATES, "filter_category": category}
     try:
         rows = supabase.rpc("match_cloud_documents", {
-            **params, "exclude_categories": exclude, "filter_provider": provider}).execute().data or []
+            **params, "exclude_categories": exclude}).execute().data or []
         return VectorCandidates(rows)
     except Exception as exc:  # noqa: BLE001 - old function signature (migration 003 not run)
         if not _missing_rpc(exc):
@@ -82,13 +77,11 @@ def _vector_search(query: str, *, category: str | None = None, exclude: list[str
     params["match_count"] = CANDIDATES * 4
     rows = supabase.rpc("match_cloud_documents", params).execute().data or []
     rows = [r for r in rows if not exclude or r.get("category") not in exclude]
-    if provider:
-        rows = [r for r in rows if (r.get("metadata") or {}).get("provider") == provider]
     return VectorCandidates(rows[:CANDIDATES], legacy=True)
 
 
 def retrieve_documents(query: str, *, category: str | None = None,
-                       exclude: list[str] | None = None, provider: str | None = None,
+                       exclude: list[str] | None = None,
                        hybrid: bool | None = None, top_k: int = TOP_K,
                        min_score: float = RERANK_MIN_SCORE) -> RetrievalResult:
     """The shared production/evaluation path: scoped candidates -> RRF -> rerank."""
@@ -96,7 +89,7 @@ def retrieve_documents(query: str, *, category: str | None = None,
     vector_error: Exception | None = None
     query = expand_aliases(query)  # "KMS" -> "KMS (Key Management Service)" for every stage
     try:
-        vector = _vector_search(query, category=category, exclude=exclude, provider=provider)
+        vector = _vector_search(query, category=category, exclude=exclude)
         if getattr(vector, "legacy", False):
             notes.append("Legacy vector search in use; migration 003 is needed for the current retrieval backend.")
     except Exception as exc:  # noqa: BLE001 - lexical retrieval may still find evidence
@@ -110,11 +103,11 @@ def retrieve_documents(query: str, *, category: str | None = None,
     if enabled and terms:
         try:
             # AND first (all identifiers present — precise), then OR if nothing matches:
-            # without IDF, a common term like "bizfly" otherwise drowns a rare price.
+            # without IDF, a common term otherwise drowns a rare price or product code.
             for text in dict.fromkeys((lexical_query(query, mode="and"), terms)):
                 keyword = supabase.rpc("search_cloud_documents_lexical", {
                     "query_text": text, "match_count": CANDIDATES, "filter_category": category,
-                    "exclude_categories": exclude, "filter_provider": provider,
+                    "exclude_categories": exclude,
                 }).execute().data or []
                 if keyword:
                     break
@@ -126,8 +119,8 @@ def retrieve_documents(query: str, *, category: str | None = None,
         # No channel answered: the store is down. An empty result would read as "we have no
         # documents on this", so fail loudly; the tool loop reports it to the agent as an error.
         raise RuntimeError(f"Document store unreachable: {vector_error}") from vector_error
-    vector = eligible_documents(vector, category=category, exclude=exclude, provider=provider)
-    keyword = eligible_documents(keyword, category=category, exclude=exclude, provider=provider)
+    vector = eligible_documents(vector, category=category, exclude=exclude)
+    keyword = eligible_documents(keyword, category=category, exclude=exclude)
     candidates = reciprocal_rank_fusion(vector, keyword, limit=CANDIDATES * 2)
     ranked = rank_documents(query, candidates, top_k, min_score)
     if ranked.status == "disabled":
@@ -166,11 +159,11 @@ def _empty_result(result: RetrievalResult, message: str) -> str:
 def document_scope(category: str | None = None) -> dict:
     """
     Scope of search_cloud_documents, shared with the retrieval evals: our own documents only.
-    Competitor pages are never included; partner case studies only when asked for by category.
+    Partner case studies only when asked for by category.
     """
     if category == CASE_STUDY_CATEGORY:
-        return {"category": category, "exclude": [COMPETITOR_CATEGORY]}
-    return {"category": category, "exclude": [COMPETITOR_CATEGORY, CASE_STUDY_CATEGORY]}
+        return {"category": category, "exclude": None}
+    return {"category": category, "exclude": [CASE_STUDY_CATEGORY]}
 
 
 @tool
@@ -199,28 +192,3 @@ def search_cloud_documents(query: str, category: str | None = None) -> str:
     if not result.documents:
         return _empty_result(result, "No relevant documents found in the database for this question.")
     return _format(result, "DOCUMENT SEARCH RESULTS")
-
-
-@tool
-def search_competitor_docs(query: str, provider: str | None = None) -> str:
-    """
-    Searches crawled PUBLIC web pages of Vietnamese cloud competitors (product pages and
-    price lists of VNG, FPT, Bizfly, VNPT, Viettel IDC) — for questions about a competitor's
-    services, features, SLAs or list prices.
-
-    Args:
-        query: The question or topic to search for.
-        provider: Optional: one of 'vng', 'fpt', 'bizfly', 'vnpt', 'viettelidc', 'viettel'.
-            Leave empty to search all competitors.
-
-    Returns:
-        Relevant passages with provider, page URL and crawl date, or a message that nothing
-        relevant was found.
-    """
-    provider = (provider or "").strip().lower() or None
-    if provider and provider not in COMPETITOR_PROVIDERS:
-        return f"Unknown provider {provider!r}. Valid options: {', '.join(COMPETITOR_PROVIDERS)}."
-    result = retrieve_documents(query, category=COMPETITOR_CATEGORY, provider=provider)
-    if not result.documents:
-        return _empty_result(result, "No relevant competitor pages found for this question.")
-    return _format(result, "COMPETITOR PAGE RESULTS (public website data — cite the source and date)")

@@ -77,3 +77,48 @@ def test_grader_first_failure_requests_retry_without_warning():
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v", "-s"])
+
+
+# --- Jev decision model (OpenCode Zen System One): probability + cutoff, like the reranker ---
+
+_GROUNDED = {
+    "raw_tool_output": "{'calculated_monthly_cost_usd': 50.0}",
+    "final_response": "The monthly storage cost is 50 USD.",
+    "retry_count": 0,
+}
+
+
+def _jev_response(p):
+    resp = MagicMock()
+    resp.json.return_value = {"model": "jev-1.13", "answers": {"grounded": {"type": "noul", "noul": p}}}
+    return resp
+
+
+def test_jev_probability_above_cutoff_passes_without_llm(monkeypatch):
+    monkeypatch.setenv("JEV_GRADER_ENABLED", "true")
+    monkeypatch.setenv("OPENCODE_API_KEY", "test")
+    mock_llm = _mock_grader_returning("FAIL")
+    with patch("app.graders.self_rag_grader.requests.post", return_value=_jev_response(0.97)) as post, \
+            patch("app.graders.self_rag_grader.grader_llm", mock_llm):
+        result = grounding_grader_node(dict(_GROUNDED))
+    assert result["grading_passed"] is True
+    assert post.call_args.kwargs["json"]["model"] == "jev-1.13-free"
+    mock_llm.invoke.assert_not_called()
+
+
+def test_jev_probability_below_cutoff_fails_and_retries(monkeypatch):
+    monkeypatch.setenv("JEV_GRADER_ENABLED", "true")
+    monkeypatch.setenv("OPENCODE_API_KEY", "test")
+    with patch("app.graders.self_rag_grader.requests.post", return_value=_jev_response(0.08)):
+        result = grounding_grader_node(dict(_GROUNDED))
+    assert result["grading_passed"] is False
+    assert result["retry_count"] == 1 and result["grader_feedback"]
+
+
+def test_jev_error_falls_back_to_llm_grader(monkeypatch):
+    monkeypatch.setenv("JEV_GRADER_ENABLED", "true")
+    monkeypatch.delenv("OPENCODE_API_KEY", raising=False)  # missing key -> Jev unavailable
+    with patch("app.graders.self_rag_grader.grader_llm", _mock_grader_returning("PASS")) as mock_llm:
+        result = grounding_grader_node(dict(_GROUNDED))
+    assert result["grading_passed"] is True
+    mock_llm.invoke.assert_called_once()

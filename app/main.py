@@ -214,7 +214,7 @@ async def chat(request: ChatRequest, caller: str = Depends(security.chat_caller)
 # Nodes that produce the user-facing answer. We stream tokens ONLY from these — the
 # supervisor (intent classification) and grader also call the LLM, but their tokens are
 # internal and must not leak into the answer.
-ANSWER_NODES = {"calculator", "document", "competitor", "general"}
+ANSWER_NODES = {"calculator", "document", "general"}
 
 
 
@@ -307,7 +307,7 @@ async def chat_stream(request: ChatRequest, caller: str = Depends(security.chat_
             yield _sse({"type": "error", "message": "The assistant failed to answer. Please try again."})
             return
 
-        if route in {"calculator", "document", "competitor"} and final_response:
+        if route in {"calculator", "document"} and final_response:
             ttft = time.perf_counter() - t0
             yield _sse({"type": "ttft", "seconds": round(ttft, 3)})
             yield _sse({"type": "token", "text": final_response})

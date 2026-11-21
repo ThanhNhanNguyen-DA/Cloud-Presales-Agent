@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config import EMBEDDING_DIM, EMBEDDING_MODEL
-from app.tools.rag_tools import (CANDIDATES, CASE_STUDY_CATEGORY, COMPETITOR_CATEGORY, TOP_K, VECTOR_THRESHOLD,
+from app.tools.rag_tools import (CANDIDATES, CASE_STUDY_CATEGORY, TOP_K, VECTOR_THRESHOLD,
                                  document_scope, retrieve_documents)
 from app.tools.reranker import RERANK_MIN_SCORE, RERANK_MODEL
 
@@ -26,18 +26,17 @@ def evaluate_queries(samples: list[dict], *, hybrid: bool = True, progress: bool
     queries, ranks, elapsed = [], [], []
     for index, sample in enumerate(samples):
         scope = sample.get("scope", "own")
-        if scope not in {"own", "competitor", "casestudy"}:
-            raise ValueError("scope must be own, competitor or casestudy.")
+        if scope not in {"own", "casestudy"}:
+            raise ValueError("scope must be own or casestudy.")
         started = time.perf_counter()
         # Score the SAME candidate pool as production, retaining below-cutoff passages
         # for review. The report's ranking metrics apply the runtime cutoff/top-k.
         # Same scope as the tools. "casestudy" = the question asks for partner customer stories,
         # which search_cloud_documents only searches on request (never derived from the gold label).
-        where = ({"category": COMPETITOR_CATEGORY} if scope == "competitor"
-                 else document_scope(CASE_STUDY_CATEGORY if scope == "casestudy" else None))
+        where = document_scope(CASE_STUDY_CATEGORY if scope == "casestudy" else None)
         result = retrieve_documents(
             sample["question"], **where,
-            provider=sample.get("provider"), hybrid=hybrid,
+            hybrid=hybrid,
             top_k=CANDIDATES * 2, min_score=0.0,
         )
         elapsed.append(time.perf_counter() - started)
@@ -50,7 +49,7 @@ def evaluate_queries(samples: list[dict], *, hybrid: bool = True, progress: bool
         ranks.append(next((i for i, d in enumerate(accepted, 1) if is_gold(d)), None))
         queries.append({
             "id": sample.get("id") or f"query-{index + 1}", "question": sample["question"],
-            "scope": scope, "provider": sample.get("provider"), "gold_ids": gold,
+            "scope": scope, "gold_ids": gold,
             "split": sample.get("split"), "answerable": sample.get("answerable", True if gold else None),
             "method": result.method, "notes": result.notes, "seconds": elapsed[-1],
             "candidates": [{"id": d.get("id"), "score": d["rerank_score"],

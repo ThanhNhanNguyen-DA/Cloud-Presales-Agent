@@ -6,7 +6,7 @@ Metrics come from app/evaluation/metrics.py: the judge is the app's own fallback
 Qwen3-Embedding-0.6B. No OpenAI key, no external `ragas` package. Scoring runs on
 MAX_WORKERS = 2 threads to stay under free-tier rate limits.
 
-  document / competitor  faithfulness, answer_relevancy, context_precision, context_recall
+  document               faithfulness, answer_relevancy, context_precision, context_recall
   calculator             faithfulness (vs `tool(args) -> result`), answer_relevancy
   general                not scored (no data to ground against)
 
@@ -32,7 +32,7 @@ from statistics import mean
 from evals import common
 
 METRICS = ("faithfulness", "answer_relevancy", "context_precision", "context_recall")
-BY_ROUTE = {"document": METRICS, "competitor": METRICS, "calculator": METRICS[:2]}
+BY_ROUTE = {"document": METRICS, "calculator": METRICS[:2]}
 MAX_WORKERS = 2
 FAITHFULNESS_ALERT = 0.8
 

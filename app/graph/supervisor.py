@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 llm = get_chat_llm(temperature=0, role="supervisor")
 
 ROUTING_PROMPT = """You are the Supervisor for the Presales Cloud Chatbot system.
-Classify the LATEST question into EXACTLY one of these groups: calculator, document, competitor, general.
+Classify the LATEST question into EXACTLY one of these groups: calculator, document, general.
 
 - calculator: compute a number from the user's inputs — backup duration, storage cost per month,
   VM sizing (vCPU/RAM for N concurrent users), database growth / storage tier for an IOPS need.
@@ -28,16 +28,13 @@ Classify the LATEST question into EXACTLY one of these groups: calculator, docum
   Our services include: Cloud Server, Object Storage, ELB (load balancer), Auto Scaling, VPC, VPN,
   RDS / RDS for MySQL, Key Management Service, Cloud Trace, Elastic IP, Elastic GPU, Cloud Kafka,
   DaaS, Terraform, Availability Zones.
-- competitor: the question names a competitor — AWS / Azure / GCP services (what is our equivalent,
-  compare, migrate) or Vietnamese providers (VNG Cloud, FPT Cloud, Bizfly, VNPT, Viettel IDC): their
-  services, features, SLAs or prices.
-- general: greetings, thanks, small talk, questions about this assistant, or off-topic requests.
+- general: greetings, thanks, small talk, questions about this assistant, off-topic requests, and
+  questions about competitors (AWS / Azure / GCP or other providers) — competitor comparison is not supported.
 
 Examples:
 "Cách thêm listener HTTPS cho Load Balancer?" -> document
 "Cloud Kafka giới hạn bao nhiêu topic?" -> document
-"AWS DynamoDB bên mình có gì tương đương?" -> competitor
-"Bảng giá Object Storage của Viettel IDC?" -> competitor
+"AWS DynamoDB bên mình có gì tương đương?" -> general
 "Ứng dụng Go 300 người dùng đồng thời cần bao nhiêu RAM?" -> calculator
 "Cảm ơn, vậy là đủ rồi" -> general
 {history_section}
@@ -46,7 +43,7 @@ LATEST question: {query}
 The LATEST question may be a follow-up (e.g. "and the monthly cost?", "what about GCP?").
 If so, use the recent conversation above to understand what it refers to before classifying.
 
-Return ONLY one of the 4 words above, with no explanation."""
+Return ONLY one of the 3 words above, with no explanation."""
 
 
 def _format_history_for_routing(messages, max_messages: int = 4) -> str:
@@ -64,7 +61,7 @@ def _format_history_for_routing(messages, max_messages: int = 4) -> str:
     return "\nRecent conversation:\n" + "\n".join(lines) + "\n"
 
 
-VALID_ROUTES: tuple[Route, ...] = ("calculator", "document", "competitor", "general")
+VALID_ROUTES: tuple[Route, ...] = ("calculator", "document", "general")
 _ROUTE_WORD = re.compile(r"\b(" + "|".join(VALID_ROUTES) + r")\b")
 
 
@@ -73,7 +70,7 @@ def parse_route(content) -> Route:
     Extract the route from the classifier's reply.
 
     Tolerates casing, punctuation, quotes or extra words ("Calculator.", "**document**",
-    "Route: competitor"); the first valid route word wins. Falls back to "general".
+    "Route: document"); the first valid route word wins. Falls back to "general".
     """
     text = content if isinstance(content, str) else str(content or "")
     match = _ROUTE_WORD.search(text.lower())
@@ -84,7 +81,7 @@ def supervisor_node(state: GraphState) -> dict:
     """
     Supervisor node:
     1. Retrieves past (reviewed) corrections — mandatory, not an LLM decision.
-    2. Classifies the question into one of the 4 routes, using the recent conversation so
+    2. Classifies the question into one of the 3 routes, using the recent conversation so
        follow-ups ("and the monthly cost?") classify correctly.
 
     Returns the partial state update {"route", "retrieved_experience"}.

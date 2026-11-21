@@ -17,7 +17,7 @@ llm_with_tools = llm.bind_tools(TOOLS)
 SYSTEM_PROMPT = """You are the Document Agent for the Presales Cloud system.
 Task: look up technical documentation, SLA, security (ISO 27001, PCI-DSS), and legal compliance (Decree 13/ND-CP).
 You MUST use the search_cloud_documents tool to look things up — DO NOT make up SLA terms or legal figures yourself.
-The tool searches OUR documentation only; competitor web pages are excluded on purpose. If the user asks about a competitor, say that the competitor specialist handles it.
+The tool searches OUR documentation only. Comparisons with competitors are not supported; if the user asks about a competitor, say so plainly.
 If no relevant document is found, clearly say that the information is not available yet, do not guess.
 If the tool returns an "error", the lookup itself failed (e.g. the document store is unreachable): say the
 document system is temporarily unavailable and to try again later. Never present it as "we have no information".

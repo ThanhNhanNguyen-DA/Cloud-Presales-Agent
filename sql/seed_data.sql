@@ -1,12 +1,3 @@
--- Seed data for cloud_competitor_mapping
-INSERT INTO cloud_competitor_mapping (competitor_name, competitor_service_name, local_service_name, feature_comparison, migration_difficulty)
-VALUES
-    ('AWS', 'S3', 'Object Storage', 'Same functionality, different API structure', 'Easy'),
-    ('AWS', 'RDS', 'Managed Database', 'Both fully managed, similar pricing models', 'Medium'),
-    ('AWS', 'EC2', 'Cloud Server', 'Similar VM offerings, different management interface', 'Medium'),
-    ('Azure', 'Blob Storage', 'Object Storage', 'Equivalent object storage with Azure integration', 'Easy'),
-    ('GCP', 'Cloud SQL', 'Managed Database', 'Comparable managed database service', 'Medium');
-
 -- Seed data for cloud_service_pricing
 INSERT INTO cloud_service_pricing (service_name, flavor_name, unit, price_per_unit, currency)
 VALUES

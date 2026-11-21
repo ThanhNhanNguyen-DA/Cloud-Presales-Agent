@@ -6,7 +6,7 @@ dict with what happened in that step — no internals, just facts a non-technica
 be told about (the UI turns them into sentences):
 
     supervisor -> {"route": "calculator", "used_corrections": False}
-    calculator / document / competitor
+    calculator / document
                -> {"tools": ["calculate_backup_and_cost"], "found_data": True, "tool_failed": False}
     general    -> {"tools": []}
     grader     -> {"verdict": "pass" | "retry" | "warn" | "unverified" | "skipped",
@@ -19,7 +19,7 @@ import re
 
 from app.graders.self_rag_grader import UNVERIFIED_MARKERS
 
-SPECIALISTS = {"calculator", "document", "competitor"}
+SPECIALISTS = {"calculator", "document"}
 _TOOL_CALL = re.compile(r"^(\w+)\(")
 # Tool results that mean "nothing usable came back".
 _NO_DATA = re.compile(r"No relevant|No matching|No mapping data|not found|'error'|\"error\"", re.IGNORECASE)

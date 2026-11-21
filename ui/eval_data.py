@@ -101,7 +101,7 @@ def grader_verdict(record: dict) -> str:
 
 
 def scatter_points(records: list[dict]) -> list[dict]:
-    """Cases with both a rerank score and a faithfulness score (document / competitor)."""
+    """Cases with both a rerank score and a faithfulness score (document route)."""
     points = []
     for r in records:
         x, y = r.get("top_rerank_score"), (r.get("ragas") or {}).get("faithfulness")
@@ -137,20 +137,19 @@ def explorer_rows(records: list[dict], selected: set[str]) -> list[dict]:
 _DEMO_QUESTIONS = {
     "calculator": "Backup 500GB qua 200Mbps, tier cool mất bao lâu?",
     "document": "SLA uptime của Object Storage là bao nhiêu?",
-    "competitor": "So sánh giá Cloud Server của FPT Cloud với bên mình",
     "general": "Xin chào, bạn giúp được gì?",
 }
 
 
 def _demo_run(name: str, run_at: str, quality: float, seed: int) -> dict:
     rng = random.Random(seed)
-    routes = ["calculator"] * 8 + ["document"] * 6 + ["competitor"] * 6 + ["general"] * 4
+    routes = ["calculator"] * 8 + ["document"] * 10 + ["general"] * 4
     records = []
     for i, route in enumerate(routes):
         verdicts: list[str] = []
         if route != "general":
             verdicts = ["PASS"] if rng.random() < quality else ["FAIL", "PASS" if rng.random() < 0.7 else "FAIL"]
-        rerank = round(rng.uniform(0.02, 0.98), 2) if route in ("document", "competitor") else None
+        rerank = round(rng.uniform(0.02, 0.98), 2) if route == "document" else None
         base = 0.4 + 0.55 * (rerank if rerank is not None else 0.9)
         faith = None if route == "general" else round(min(1.0, max(0.0, base + rng.uniform(-0.15, 0.1))), 2)
         ok = not verdicts or verdicts[-1] == "PASS"
