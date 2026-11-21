@@ -136,40 +136,40 @@ def new_conversation() -> None:
 
 # --------------------------------------------------------------------------- sidebar
 with st.sidebar:
-    st.subheader("☁️ Trợ lý Presales")
+    st.subheader(" Trợ lý Presales")
     health = backend_health()
     if health is None:
-        st.error("Không kết nối được tới hệ thống", icon="🔴")
+        st.error("Không kết nối được tới hệ thống")
         st.caption(f"Kiểm tra backend tại {API_BASE_URL}")
     elif health.get("database") == "unreachable":
         st.warning("Kho dữ liệu (Supabase) không truy cập được: các câu hỏi cần tra cứu tài liệu "
-                   "sẽ báo lỗi. Tính toán chi phí / cấu hình vẫn dùng được.", icon="🟠")
+                   "sẽ báo lỗi. Tính toán chi phí / cấu hình vẫn dùng được.")
     else:
-        st.success("Hệ thống sẵn sàng", icon="🟢")
+        st.success("Hệ thống sẵn sàng")
 
     st.divider()
-    st.button("🆕 Cuộc trò chuyện mới", on_click=new_conversation, width="stretch")
+    st.button(" Cuộc trò chuyện mới", on_click=new_conversation, width="stretch")
     asked = sum(m["role"] == "user" for m in ss.chat_history)
     st.caption(f"Đã hỏi {asked} câu trong cuộc trò chuyện này.")
 
-    with st.expander("ℹ️ Cách đọc nhật ký hệ thống"):
+    with st.expander(" Cách đọc nhật ký hệ thống"):
         st.markdown(
-            "- 🧭 **Đã hiểu yêu cầu** — hệ thống xếp câu hỏi vào một nhóm chuyên môn.\n"
-            "- 🔧 **Đã dùng** — công cụ tính toán hoặc nguồn dữ liệu được tra cứu.\n"
-            "- ✅ **Đã kiểm tra** — số liệu trong câu trả lời được đối chiếu tự động với dữ liệu gốc.\n"
-            "- ⚠️ — có điểm cần bạn kiểm tra lại trước khi gửi cho khách hàng.\n"
-            "- 📊 **Chấm điểm** — mức độ bám sát dữ liệu và đúng trọng tâm (càng gần 100% càng tốt)."
+            "-  **Đã hiểu yêu cầu** — hệ thống xếp câu hỏi vào một nhóm chuyên môn.\n"
+            "-  **Đã dùng** — công cụ tính toán hoặc nguồn dữ liệu được tra cứu.\n"
+            "-  **Đã kiểm tra** — số liệu trong câu trả lời được đối chiếu tự động với dữ liệu gốc.\n"
+            "-  — có điểm cần bạn kiểm tra lại trước khi gửi cho khách hàng.\n"
+            "-  **Chấm điểm** — mức độ bám sát dữ liệu và đúng trọng tâm (càng gần 100% càng tốt)."
         )
 
 
 # --------------------------------------------------------------------------- layout
-st.title("☁️ Trợ lý Cloud Presales")
+st.title(" Trợ lý Cloud Presales")
 st.caption("Tính chi phí & cấu hình · tra cứu tài liệu SLA / bảo mật / tính năng")
 
 chat_col, log_col = st.columns([0.64, 0.36], gap="large")
 
 with log_col:
-    st.markdown("#### 🧾 Nhật ký hệ thống")
+    st.markdown("####  Nhật ký hệ thống")
     log_area = st.empty()
 
 
@@ -184,8 +184,8 @@ def render_log(live: dict | None = None) -> None:
         for i, item in enumerate(items):
             lines = "".join(
                 f"<div class='log-line log-{e['level']}'>{format_entry(e)}</div>" for e in item["entries"]
-            ) or "<div class='log-line'>⏳ Đang xử lý…</div>"
-            header = f"🕑 {item['time']} — {item['question'][:60]}{'…' if len(item['question']) > 60 else ''}"
+            ) or "<div class='log-line'> Đang xử lý…</div>"
+            header = f"{item['time']} — {item['question'][:60]}{'…' if len(item['question']) > 60 else ''}"
             if i == 0:
                 st.markdown(f"<div class='log-q'>{header}</div>{lines}", unsafe_allow_html=True)
             else:
@@ -199,7 +199,7 @@ def render_scorecard(ragas: dict | None, route: str | None = None) -> None:
     parts = [f"{label} **{ragas[key]:.0%}**" for key, label, _ in SCORECARD
              if isinstance(ragas.get(key), (int, float))]
     if parts:
-        st.caption("📊 " + " · ".join(parts),
+        st.caption(" " + " · ".join(parts),
                    help=" ".join(f"{label}: {help_}" for _, label, help_ in SCORECARD))
 
 
@@ -207,7 +207,7 @@ render_log()
 
 with chat_col:
     if not ss.chat_history:
-        st.info("👋 Xin chào! Hãy đặt câu hỏi ở ô bên dưới.")
+        st.info(" Xin chào! Hãy đặt câu hỏi ở ô bên dưới.")
 
     for idx, msg in enumerate(ss.chat_history):
         with st.chat_message(msg["role"]):
@@ -218,12 +218,12 @@ with chat_col:
             if msg["role"] != "assistant":
                 continue
             if msg.get("restored"):
-                st.caption("↩️ Tin nhắn trước đó trong cuộc trò chuyện")
+                st.caption("Tin nhắn trước đó trong cuộc trò chuyện")
                 continue
             if not msg.get("is_error"):
                 meta = [route_badge(msg.get("route"))]
                 if isinstance(msg.get("total"), (int, float)):
-                    meta.append(f"⏱ {msg['total']:.1f} giây".replace(".", ","))
+                    meta.append(f"{msg['total']:.1f} giây".replace(".", ","))
                 status = grading_status(msg.get("grading"), msg.get("found_data"), msg.get("tool_failed", False))
                 if status:
                     label, icon, color = status
@@ -234,17 +234,17 @@ with chat_col:
             if msg.get("is_error"):
                 continue
             if msg.get("feedback_given"):
-                st.caption("✅ " + msg.get("feedback_message", "Đã ghi nhận góp ý."))
+                st.caption(msg.get("feedback_message", "Đã ghi nhận góp ý."))
                 continue
             up, down, _ = st.columns([1, 1.4, 3])
-            if up.button("👍 Chính xác", key=f"up_{idx}"):
+            if up.button("👍", key=f"up_{idx}"):
                 ok, text = send_feedback({"query": msg["query"], "response": msg["content"],
                                           "is_positive": True, "correction": None})
                 if ok:
                     msg.update(feedback_given=True, feedback_message=text)
                     st.rerun()
                 st.error(text)
-            if down.button("👎 Chưa đúng / cần sửa", key=f"down_{idx}"):
+            if down.button("👎", key=f"down_{idx}"):
                 ss[f"show_fix_{idx}"] = True
             if ss.get(f"show_fix_{idx}"):
                 fix = st.text_area("Thông tin đúng là gì? Hệ thống sẽ ghi nhớ sau khi được duyệt.",
@@ -262,7 +262,7 @@ question = st.chat_input("Nhập câu hỏi…")
 if question:
     ss.chat_history.append({"role": "user", "content": question})
     live = {"question": question, "time": datetime.now().strftime("%H:%M:%S"),
-            "entries": [{"t": 0.0, "icon": "📨", "text": "Đã nhận câu hỏi", "level": "info"}]}
+            "entries": [{"t": 0.0, "text": "Đã nhận câu hỏi", "level": "info"}]}
     render_log(live)
     meta: dict = {}
 
@@ -271,7 +271,7 @@ if question:
             st.markdown(question)
         with st.chat_message("assistant"):
             answer_box = st.empty()
-            answer_box.markdown("⏳ _Đang xử lý…_")
+            answer_box.markdown(" _Đang xử lý…_")
             t0 = time.perf_counter()
             shown = ""
             log_ctx: dict = {}  # route + tools already announced, for the activity log
@@ -303,7 +303,7 @@ if question:
                                 answer_box.markdown(format_answer_markdown(shown + "▌"), unsafe_allow_html=True)
                             elif etype == "reset":
                                 shown = ""
-                                answer_box.markdown("🔁 _Đang soạn lại câu trả lời cho chính xác hơn…_")
+                                answer_box.markdown(" _Đang soạn lại câu trả lời cho chính xác hơn…_")
                             elif etype == "error":
                                 meta["error"] = "Xin lỗi, hệ thống chưa trả lời được. Vui lòng thử lại."
                             elif etype == "final":

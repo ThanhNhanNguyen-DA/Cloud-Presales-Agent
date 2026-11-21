@@ -161,6 +161,7 @@ Một câu mẫu chỉ được dùng khi độ tương đồng ≥ 0.90 **và**
 ### Kiểm thử và đánh giá
 
 ```bash
+python -m evals.audit --refresh                  # KIỂM TOÁN TOÀN HỆ THỐNG: 6 tầng, điểm 0–100, giám khảo AI độc lập (Gemini)
 python -m pytest -q                              # 316 test, không cần mạng (Groq / Supabase / Redis / model đều được giả lập)
 python -m evals.eval_e2e                         # đánh giá end-to-end offline; thêm --live để chạy mô hình thật
 python -m scripts.eval_retrieval_production      # đo độ chính xác truy xuất trên DB thật

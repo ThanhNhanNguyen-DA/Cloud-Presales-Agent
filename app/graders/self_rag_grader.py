@@ -140,6 +140,37 @@ def is_clarification(answer: str) -> bool:
 
 _VERDICT_WORD = re.compile(r"\b(PASS|FAIL)\b")
 
+# Certifications / compliance standards. A wrong one in a security answer is the costliest kind of
+# hallucination, and the LLM grader has let one through ("ISO 27018" with no source), so these are
+# checked by code: each one named in the answer must appear in the evidence or the question.
+_STANDARD = re.compile(
+    r"\bISO(?:/IEC)?\s*\d{4,5}(?:-\d+)?|\bPCI(?:[\s-]?DSS)?\b|\bSOC\s*[123]\b|\bHIPAA\b|\bGDPR\b"
+    r"|\bCSA\s*STAR\b|\bTier\s*(?:[1-4]|I{1,3}|IV)\b",
+    re.IGNORECASE,
+)
+
+
+def _standard_key(term: str) -> str:
+    """'ISO/IEC 27018' / 'iso 27018' -> 'iso27018'; 'PCI DSS' / 'PCI-DSS' -> 'pci'."""
+    key = re.sub(r"[\s/-]|iec", "", term.lower())
+    return "pci" if key.startswith("pci") else key
+
+
+# "ISO 27017 - 27018", "ISO 27017/27018", "ISO 27001 và 27017": every number in the run is an ISO standard.
+_ISO_RUN = re.compile(r"\bISO(?:/IEC)?\s*(\d{4,5}(?:\s*(?:-|–|/|,|&|và|and)\s*\d{4,5})+)", re.IGNORECASE)
+
+
+def unsupported_standards(answer: str, *sources: str) -> list[str]:
+    """Certifications / standards named in `answer` that none of `sources` mentions."""
+    known = {_standard_key(t) for src in sources for t in _STANDARD.findall(src or "")}
+    known |= {f"iso{n}" for src in sources for run in _ISO_RUN.findall(src or "")
+              for n in re.findall(r"\d{4,5}", run)}
+    missing = []
+    for term in _STANDARD.findall(answer or ""):
+        if _standard_key(term) not in known and term not in missing:
+            missing.append(term)
+    return missing
+
 
 def parse_verdict(text: str) -> tuple[bool | None, list[str]]:
     """
@@ -215,6 +246,12 @@ def grounding_grader_node(state: GraphState) -> dict:
             logger.warning("Grading failed: %s", exc)
             passed, issues = None, []
 
+    invented = unsupported_standards(final_answer, raw_output, state.get("user_query") or "")
+    if invented:
+        # Deterministic: overrides an LLM PASS (or an inconclusive grader).
+        passed = False
+        issues = issues + [f"'{t}' is not in the tool data: remove it or state it is not documented"
+                           for t in invented]
     if passed is None:
         # Could not verify: don't loop, deliver the answer with an explicit caveat.
         logger.info("verdict=UNVERIFIED attempt=%d", retry_count + 1)

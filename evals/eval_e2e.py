@@ -309,7 +309,7 @@ def run_case(graph, case: dict, memory_rows: list[dict] = ()) -> tuple[dict, dic
         "latency_s": round(latency, 3), "llm_calls": usage["llm_calls"],
         "tokens_in": usage["tokens_in"], "tokens_out": usage["tokens_out"],
         "question": case["question"], "required_facts": case["required_numbers_or_facts"],
-        "answer": answer, "raw_tool_output": (state.get("raw_tool_output") or "")[:6000],
+        "answer": answer, "raw_tool_output": (state.get("raw_tool_output") or "")[:20000],
     }
     record["passed"] = bool(record["route_ok"] and record["tool_ok"] and not error and not (
         record["missing_facts"] or record["forbidden_hits"] or record["unsupported_numbers"] or record["leaks"]))

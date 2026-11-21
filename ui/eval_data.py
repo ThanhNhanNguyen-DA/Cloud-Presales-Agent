@@ -15,7 +15,7 @@ from pathlib import Path
 
 RESULTS_DIR = Path(__file__).resolve().parents[1] / "evals" / "results"
 RADAR_AXES = ("Routing Acc", "Faithfulness", "Answer Relevancy", "Context Recall", "Grader F1")
-FILTERS = ("FAIL", "⚠️ Warning", "Grader ↔ RAGAS lệch pha")
+FILTERS = ("FAIL", "Warning", "Grader ↔ RAGAS lệch pha")
 
 
 def load_runs(directory: str | Path | None = None) -> dict[str, list[dict]]:
@@ -31,6 +31,23 @@ def load_runs(directory: str | Path | None = None) -> dict[str, list[dict]]:
             if isinstance(payload, dict) and isinstance(payload.get("results"), list):
                 items.append({**payload, "name": path.stem})
     return runs
+
+
+def load_audits(directory: str | Path | None = None) -> list[dict]:
+    """End-to-end audits (evals/audit.py), oldest first; unreadable files are skipped."""
+    audits = []
+    for path in sorted(Path(directory or RESULTS_DIR).glob("audit_*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(payload, dict) and isinstance(payload.get("layers"), dict):
+            audits.append({**payload, "name": path.stem})
+    return audits
+
+
+LAYER_LABELS = {"L1_store": "Kho vector / DB", "L2_retrieval": "Truy xuất", "L3_generation": "Sinh câu trả lời",
+                "L4_agents": "Các agent", "L5_system": "Toàn hệ thống", "L6_evaluation": "Bộ đánh giá"}
 
 
 def grader_for(e2e_run: dict, grader_runs: list[dict]) -> dict | None:
@@ -72,7 +89,7 @@ def final_outcome(record: dict) -> str:
     verdicts = record.get("verdicts") or []
     if not verdicts:
         return "Không cần kiểm chứng"
-    return "✅ Verified" if verdicts[-1] == "PASS" else "⚠️ Warning"
+    return " Verified" if verdicts[-1] == "PASS" else " Warning"
 
 
 def sankey(records: list[dict]) -> tuple[list[str], list[int], list[int], list[int]]:
@@ -135,8 +152,6 @@ def explorer_rows(records: list[dict], selected: set[str]) -> list[dict]:
 
 # --------------------------------------------------------------------------- demo data
 _DEMO_QUESTIONS = {
-    "calculator": "Backup 500GB qua 200Mbps, tier cool mất bao lâu?",
-    "document": "SLA uptime của Object Storage là bao nhiêu?",
     "general": "Xin chào, bạn giúp được gì?",
 }
 

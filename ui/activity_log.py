@@ -9,9 +9,9 @@ Each entry is a dict: {"t": seconds since the question was sent, "icon": "🧭",
 from __future__ import annotations
 
 ROUTE_LABELS = {
-    "calculator": ("🧮", "Tính toán chi phí / cấu hình"),
-    "document": ("📚", "Tra cứu tài liệu sản phẩm"),
-    "general": ("💬", "Trò chuyện chung"),
+    "calculator": ( "Tính toán chi phí / cấu hình"),
+    "document": ( "Tra cứu tài liệu sản phẩm"),
+    "general": ( "Trò chuyện chung"),
 }
 
 TOOL_LABELS = {
@@ -23,7 +23,7 @@ TOOL_LABELS = {
 
 
 def route_badge(route: str | None) -> str:
-    icon, label = ROUTE_LABELS.get(route or "", ("❔", "Không xác định"))
+    icon, label = ROUTE_LABELS.get(route or "", ("Không xác định"))
     return f"{icon} {label}"
 
 
@@ -57,46 +57,46 @@ def entries_for_event(event: dict, t: float, ctx: dict | None = None) -> list[di
             if label in announced:
                 return []
             announced.add(label)
-            return [_entry(t, "🔧", f"Đang dùng: {label}")]
+            return [_entry(t, f"Đang dùng: {label}")]
         if node == "cache":
-            return [_entry(t, "⚡", "Câu hỏi này đã được trả lời trước đó — dùng lại kết quả đã kiểm tra, "
+            return [_entry(t,  "Câu hỏi này đã được trả lời trước đó — dùng lại kết quả đã kiểm tra, "
                                "không tốn lượt gọi AI", "ok")]
         if node == "supervisor":
             ctx["route"] = d.get("route")
-            icon, label = ROUTE_LABELS.get(d.get("route") or "", ("❔", "Không xác định"))
-            out = [_entry(t, "🧭", f"Đã hiểu yêu cầu: **{label}**")]
+            icon, label = ROUTE_LABELS.get(d.get("route") or "", ( "Không xác định"))
+            out = [_entry(t,  f"Đã hiểu yêu cầu: **{label}**")]
             if d.get("used_corrections"):
-                out.append(_entry(t, "📝", "Áp dụng góp ý đã được duyệt trước đây"))
+                out.append(_entry(t,  "Áp dụng góp ý đã được duyệt trước đây"))
             return out
         if node in ("calculator", "document"):
             tools = d.get("tools") or []
             if not tools:
-                return [_entry(t, "❓", "Chưa đủ thông tin để tính / tra cứu — sẽ hỏi lại bạn", "warn")]
+                return [_entry(t,  "Chưa đủ thông tin để tính / tra cứu — sẽ hỏi lại bạn", "warn")]
             new = [name for name in tools if TOOL_LABELS.get(name, name) not in announced]
             announced.update(TOOL_LABELS.get(name, name) for name in tools)
-            out = [_entry(t, "🔧", f"Đã dùng: {_tools_text(new)}")] if new else []
+            out = [_entry(t,  f"Đã dùng: {_tools_text(new)}")] if new else []
             if d.get("tool_failed"):
-                out.append(_entry(t, "❌", "Không truy cập được kho dữ liệu (lỗi hệ thống, "
+                out.append(_entry(t,  "Không truy cập được kho dữ liệu (lỗi hệ thống, "
                                           "không phải là không có thông tin)", "error"))
             elif d.get("found_data") is False:
-                out.append(_entry(t, "🔎", "Không tìm thấy dữ liệu phù hợp trong hệ thống", "warn"))
+                out.append(_entry(t,  "Không tìm thấy dữ liệu phù hợp trong hệ thống", "warn"))
             return out
         if node == "general":
-            return [_entry(t, "💬", "Trả lời trực tiếp, không cần tra cứu")]
+            return [_entry(t,  "Trả lời trực tiếp, không cần tra cứu")]
         if node == "grader":
             verdict = d.get("verdict")
             return {
-                "pass": [_entry(t, "✅", "Đã kiểm tra: số liệu khớp với dữ liệu gốc", "ok")],
-                "skipped": [_entry(t, "ℹ️", "Không có số liệu cần đối chiếu")],
-                "retry": [_entry(t, "⚠️", "Phát hiện số liệu chưa khớp — hệ thống tự soạn lại", "warn")],
-                "warn": [_entry(t, "⚠️", "Vẫn còn chênh lệch — câu trả lời có kèm cảnh báo, nên kiểm tra lại", "warn")],
-                "unverified": [_entry(t, "⚠️", "Không tự kiểm tra được — nên kiểm tra lại số liệu", "warn")],
+                "pass": [_entry(t, "Đã kiểm tra: số liệu khớp với dữ liệu gốc", "ok")],
+                "skipped": [_entry(t,  "Không có số liệu cần đối chiếu")],
+                "retry": [_entry(t,  "Phát hiện số liệu chưa khớp — hệ thống tự soạn lại", "warn")],
+                "warn": [_entry(t, "Vẫn còn chênh lệch — câu trả lời có kèm cảnh báo, nên kiểm tra lại", "warn")],
+                "unverified": [_entry(t, "Không tự kiểm tra được — nên kiểm tra lại số liệu", "warn")],
             }.get(verdict, [])
         return []
     if etype == "ttft":
-        return [_entry(t, "✍️", "Đang soạn câu trả lời…")]
+        return [_entry(t, "Đang soạn câu trả lời…")]
     if etype == "reset":
-        return [_entry(t, "🔁", "Đang viết lại câu trả lời cho chính xác hơn", "warn")]
+        return [_entry(t, "Đang viết lại câu trả lời cho chính xác hơn", "warn")]
     if etype == "ragas":
         if ctx.get("route") == "general":
             return []  # small talk: there is no data to score against
@@ -105,13 +105,13 @@ def entries_for_event(event: dict, t: float, ctx: dict | None = None) -> list[di
             parts.append(f"bám sát dữ liệu {event['faithfulness']:.0%}")
         if isinstance(event.get("answer_relevancy"), (int, float)):
             parts.append(f"đúng trọng tâm {event['answer_relevancy']:.0%}")
-        return [_entry(t, "📊", "Chấm điểm chất lượng: " + ", ".join(parts))] if parts else []
+        return [_entry(t,"Chấm điểm chất lượng: " + ", ".join(parts))] if parts else []
     if etype == "final":
         total = event.get("total")
         text = f"Hoàn tất sau {total:.1f} giây".replace(".", ",") if isinstance(total, (int, float)) else "Hoàn tất"
-        return [_entry(t, "🏁", text, "ok")]
+        return [_entry(t, text, "ok")]
     if etype == "error":
-        return [_entry(t, "❌", "Có lỗi khi trả lời — vui lòng thử lại", "error")]
+        return [_entry(t, "Có lỗi khi trả lời — vui lòng thử lại", "error")]
     return []
 
 
@@ -125,17 +125,17 @@ def grading_status(verdicts: list[str] | None, found_data: bool | None = None,
     itself broke (e.g. database unreachable), which must not look like "no information".
     """
     if tool_failed:
-        return "Lỗi hệ thống tra cứu", "❌", "red"
+        return "Lỗi hệ thống tra cứu",  "red"
     if not verdicts or verdicts[-1] in (None, "skipped"):
         return None
     if verdicts[-1] == "pass" and found_data is False:
-        return "Không có dữ liệu", "🔎", "gray"
+        return "Không có dữ liệu",  "gray"
     if verdicts[-1] == "pass":
-        return ("Self-Corrected", "🔁", "blue") if "retry" in verdicts else ("Verified", "✅", "green")
-    return "Warning", "⚠️", "orange"  # warn / unverified: the answer carries a caveat
+        return ("Self-Corrected", "blue") if "retry" in verdicts else ("Verified",  "green")
+    return "Warning", "orange"  # warn / unverified: the answer carries a caveat
 
 
 def format_entry(entry: dict) -> str:
-    """One markdown line: `+1,2s` 🧭 text."""
+    """One markdown line: `+1,2s`  text."""
     seconds = f"{entry['t']:.1f}".replace(".", ",")
     return f"<span class='log-time'>+{seconds}s</span> {entry['icon']} {entry['text']}"

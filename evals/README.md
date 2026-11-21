@@ -160,3 +160,26 @@ Trang này cần `ADMIN_API_KEY`, trừ khi đặt `AUTH_DISABLED=true`. Khi ch�
 - Bug mới trên production: thêm một dòng vào `golden_e2e.jsonl` với `forbidden_hallucinations` là đúng con số đã bịa.
 - Grader bỏ lọt hoặc bắt oan: thêm một cặp vào `adversarial_grader.jsonl`, viết vào `note` lý do đúng/sai.
 - Chạy `python -m evals.eval_e2e` offline trước để chắc tool và tham số trong dataset khớp với tool thật.
+
+## `audit`: kiểm toán toàn hệ thống (điểm 0–100)
+
+```bash
+python -m evals.audit --refresh      # chạy lại eval_e2e --live + eval_grader --live, rồi chấm 6 tầng
+python -m evals.audit                # chấm lại trên kết quả e2e / grader mới nhất
+```
+
+Giám khảo là **Gemini Flash**, khác dòng với các model của hệ thống (GPT-OSS / Qwen), nên không chấm thiên vị cho "họ hàng".
+Mọi kết quả chấm được lưu ở `evals/results/judge_cache.json`: chạy lại thì không tốn quota cho những gì đã chấm,
+và `--max-judge-calls` (mặc định 60) giới hạn số lượt gọi mỗi lần chạy, phù hợp gói miễn phí.
+
+| Tầng | Trọng số | Thành phần |
+|---|---|---|
+| L1 Kho vector / DB | 10% | đoạn rác, đoạn trùng, embedding hợp lệ, recall của index HNSW so với quét chính xác, độ phủ chủ đề |
+| L2 Truy xuất | 25% | Hit@1, Hit@4, MRR, bộ câu khó (keyword), context precision do giám khảo chấm |
+| L3 Sinh câu trả lời | 30% | điểm tổng 0–10 của giám khảo: faithfulness, correctness, completeness, trích nguồn, trung thực |
+| L4 Các agent | 20% | độ chính xác route, tool + tham số, grader |
+| L5 Toàn hệ thống | 10% | p95 latency, token / câu, lỗi graph, kiểm tra prompt injection và memory |
+| L6 Bộ đánh giá | 5% | giám khảo có đồng ý với grader và với kiểm tra dữ kiện không, cỡ bộ dữ liệu, có nhãn do người chấm không |
+
+Kết quả nằm ở `evals/results/audit_*.json` / `.md`, và được hiển thị ở đầu trang Dashboard.
+

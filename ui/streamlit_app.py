@@ -8,8 +8,8 @@ import streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv()
-st.set_page_config(page_title="Cloud Presales Assistant", page_icon="☁️", layout="wide")
+st.set_page_config(page_title="Cloud Presales Assistant", layout="wide")
 st.navigation([
-    st.Page("chat_page.py", title="Chat Presales", icon="💬", default=True),
-    st.Page("dashboard_page.py", title="Eval & Quality Dashboard", icon="📊"),
+    st.Page("chat_page.py", title="Chat Presales", icon="", default=True),
+    st.Page("dashboard_page.py", title="Eval & Quality Dashboard"),
 ]).run()

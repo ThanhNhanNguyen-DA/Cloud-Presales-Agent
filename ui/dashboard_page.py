@@ -46,6 +46,25 @@ st.title("📊 Eval & Quality Dashboard")
 if not authorized():
     st.stop()
 
+# --------------------------------------------------------------------------- 0. end-to-end audit
+audits = ed.load_audits()
+if audits:
+    latest = audits[-1]
+    previous = audits[-2] if len(audits) > 1 else None
+    st.subheader("🏁 Kiểm toán toàn hệ thống (giám khảo AI độc lập)")
+    total_col, *layer_cols = st.columns(len(latest["layers"]) + 1)
+    delta = (None if not previous or latest["overall"] is None or previous["overall"] is None
+             else f"{latest['overall'] - previous['overall']:+.1f}")
+    total_col.metric("Điểm tổng", "—" if latest["overall"] is None else f"{latest['overall']:.0f}/100", delta, border=True)
+    for col, (key, layer) in zip(layer_cols, latest["layers"].items(), strict=True):
+        col.metric(ed.LAYER_LABELS.get(key, key), "—" if layer["score"] is None else f"{layer['score']:.0f}", border=True)
+    st.caption(f"{latest['run_at']} · giám khảo {latest['judge']} · chạy lại: `python -m evals.audit --refresh`")
+    with st.expander("Vấn đề cần xử lý"):
+        for key, layer in latest["layers"].items():
+            for issue in layer["issues"]:
+                st.markdown(f"- **{ed.LAYER_LABELS.get(key, key)}**: {issue}")
+    st.divider()
+
 runs = load(str(ed.RESULTS_DIR))
 if not runs["e2e"]:
     runs = ed.demo_runs()
