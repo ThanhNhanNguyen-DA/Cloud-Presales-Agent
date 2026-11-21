@@ -234,7 +234,7 @@ def _token(text, msg_id, node="calculator"):
     return ("messages", (AIMessageChunk(content=text, id=msg_id), {"langgraph_node": node}))
 
 
-def test_stream_withholds_specialist_drafts_until_grading_finishes():
+def test_stream_shows_specialist_drafts_live_and_resets_on_retry():
     events = _events([
         _token("30 min", "m1"),
         ("updates", {"grader": {"final_response": "30 min", "raw_tool_output": "old"}}),
@@ -243,10 +243,9 @@ def test_stream_withholds_specialist_drafts_until_grading_finishes():
         ("updates", {"grader": {"final_response": "16.7 min", "route": "calculator"}}),
     ])
     types = [e["type"] for e in events]
-    assert types.count("reset") == 0
-    assert [e["text"] for e in events if e["type"] == "token"] == ["16.7 min"]
-    grader_steps = [i for i, event in enumerate(events) if event.get("node") == "grader"]
-    assert types.index("token") > max(grader_steps)
+    assert [e["text"] for e in events if e["type"] == "token"] == ["30 min", "16.7 ", "min"]
+    assert types.count("reset") == 1
+    assert types.index("reset") < [i for i, t in enumerate(types) if t == "token"][1]
     final = events[-1]
     assert final["type"] == "final" and final["response"] == "16.7 min"
 
@@ -255,7 +254,8 @@ def test_stream_ignores_supervisor_and_grader_tokens():
     events = _events([_token("calculator", "s1", node="supervisor"), _token("answer", "m1"),
                       _token('{"verdict":"PASS"}', "g1", node="grader"),
                       ("updates", {"grader": {"route": "calculator", "final_response": "checked answer"}})])
-    assert [e["text"] for e in events if e["type"] == "token"] == ["checked answer"]
+    assert [e["text"] for e in events if e["type"] == "token"] == ["answer"]
+    assert events[-1]["response"] == "checked answer"
     assert "reset" not in [e["type"] for e in events]
 
 
@@ -266,7 +266,6 @@ def test_stream_reports_graph_failure():
     events = _events(boom())
     assert events[-1]["type"] == "error"
     assert "all models down" not in json.dumps(events)
-    assert not any(e["type"] == "token" for e in events)
 
 
 def test_general_chat_still_streams_without_waiting_for_a_grader():
@@ -274,11 +273,18 @@ def test_general_chat_still_streams_without_waiting_for_a_grader():
     assert [e["text"] for e in events if e["type"] == "token"] == ["Hello"]
 
 
-def test_stream_delivers_the_grading_warning_with_the_answer():
+def test_stream_delivers_the_grading_warning_in_final():
     answer = "Partially supported answer" + grader.GRADING_WARNING
     events = _events([_token("Unverified draft", "m1"),
                       ("updates", {"grader": {"route": "document", "final_response": answer}})])
-    assert [e["text"] for e in events if e["type"] == "token"] == [answer]
+    assert [e["text"] for e in events if e["type"] == "token"] == ["Unverified draft"]
+    assert events[-1]["type"] == "final" and events[-1]["response"] == answer
+
+
+def test_unstreamed_fallback_text_is_still_sent_as_a_token():
+    events = _events([("updates", {"calculator": {"final_response": "could not complete"}}),
+                      ("updates", {"grader": {"route": "calculator", "grading_passed": True}})])
+    assert [e["text"] for e in events if e["type"] == "token"] == ["could not complete"]
 
 
 def test_chat_returns_502_when_graph_fails():

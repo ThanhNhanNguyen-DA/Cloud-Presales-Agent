@@ -3,7 +3,7 @@ RAGAS-style evaluation metrics, organised into the standard three groups.
 
 Computed with the project's own building blocks — the Groq judge LLM and the local Qwen
 embeddings — so no external `ragas` package is needed. Used by the offline batch evaluator
-(scripts/run_ragas_eval.py).
+(evals/eval_ragas.py).
 
 Metric taxonomy
 ---------------

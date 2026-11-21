@@ -68,7 +68,7 @@ def test_chat_stream_endpoint():
 
 def _post_feedback(payload):
     """
-    Call /feedback through the REAL `save_user_feedback` tool (so its input schema is
+    Call /feedback through the REAL `store_feedback` function (so its input schema is
     genuinely validated), with only the DB and the embedding model mocked. These tests
     used to hit the live Supabase project and insert fake corrections into the feedback
     memory on every run.
@@ -80,7 +80,7 @@ def _post_feedback(payload):
 
 
 def test_feedback_endpoint_upvote_no_correction():
-    """Upvote case: `save_user_feedback` must accept correction=None."""
+    """Upvote case: `store_feedback` must accept correction=None."""
     response, mock_sb = _post_feedback({
         "query": "test query",
         "response": "test response",

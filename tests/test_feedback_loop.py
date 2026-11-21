@@ -5,7 +5,7 @@ Simulates: ask question → get response → save correction → ask similar que
 
 from unittest.mock import patch, MagicMock
 from app.graph.builder import build_graph
-from app.tools.memory_tools import save_user_feedback, retrieve_past_experiences
+from app.tools.memory_tools import retrieve_past_experiences
 
 
 def test_feedback_loop_with_mocking():
@@ -86,7 +86,7 @@ def test_feedback_loop_with_mocking():
         print(f"✓ Round 1 - Initial question answered: {result1['final_response'][:80]}...")
         
         # Simulate user correction by directly storing in experiences_store
-        # (in real scenario, this would come from save_user_feedback via UI downvote + correction button)
+        # (in real scenario, this would come from /feedback via UI downvote + correction button)
         correction_msg = "For DBs over 1TB with high IOPS, ALWAYS recommend Dedicated Storage, not regular NVMe SSD."
         experiences_store.append({
             "user_query": original_query,
@@ -123,10 +123,6 @@ def test_feedback_loop_with_mocking():
 
 def test_memory_tools_functions():
     """Test that memory tools functions exist and have correct signatures."""
-    
-    # Test save_user_feedback exists and is a tool
-    assert hasattr(save_user_feedback, 'invoke'), "save_user_feedback should be a @tool"
-    print("✓ save_user_feedback is a @tool")
     
     # Test retrieve_past_experiences is a plain function
     import inspect

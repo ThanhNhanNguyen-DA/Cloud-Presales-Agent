@@ -58,6 +58,9 @@ def entries_for_event(event: dict, t: float, ctx: dict | None = None) -> list[di
                 return []
             announced.add(label)
             return [_entry(t, "🔧", f"Đang dùng: {label}")]
+        if node == "cache":
+            return [_entry(t, "⚡", "Câu hỏi này đã được trả lời trước đó — dùng lại kết quả đã kiểm tra, "
+                               "không tốn lượt gọi AI", "ok")]
         if node == "supervisor":
             ctx["route"] = d.get("route")
             icon, label = ROUTE_LABELS.get(d.get("route") or "", ("❔", "Không xác định"))

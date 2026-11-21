@@ -17,6 +17,8 @@ os.environ["SUPABASE_KEY"] = "test-supabase-key"
 os.environ["API_KEYS"] = "tester:test-api-key"
 os.environ["ADMIN_API_KEY"] = "test-admin-key"
 os.environ.pop("AUTH_DISABLED", None)
+os.environ["REDIS_URL"] = ""  # empty, not removed: load_dotenv would re-add it from .env
+os.environ["CANNED_ANSWERS_ENABLED"] = "false"  # tests that need it turn it on
 os.environ.pop("FEEDBACK_AUTO_APPROVE", None)
 
 TEST_API_KEY = "test-api-key"

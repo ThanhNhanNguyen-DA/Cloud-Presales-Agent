@@ -15,7 +15,7 @@ Async design (pragmatic):
 - Each answer is scored LIVE with two reference-free RAGAS metrics (faithfulness, answer
   relevancy), computed AFTER the answer is produced (so it never delays time-to-first-token)
   and returned with it. The other metrics stay in the offline batch job
-  (scripts/run_ragas_eval.py).
+  (evals/eval_ragas.py).
 
 Observability: every request gets an id (X-Request-ID), every log line carries it, and each
 answered question logs one summary line (route, latency, LLM calls, tokens) — see
@@ -32,12 +32,12 @@ from contextlib import asynccontextmanager
 
 from typing import Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Path, Request
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app import security
+from app import cache, canned, security
 from app.agents.tool_agent import message_text
 from app.config import validate_config
 from app.db.supabase_client import supabase
@@ -182,6 +182,17 @@ async def chat(request: ChatRequest, caller: str = Depends(security.chat_caller)
     """Run the full graph, score the answer live (RAGAS), and return both together."""
     session_id = _scoped_session(caller, request.session_id)
     state = await asyncio.to_thread(_initial_state, request.query, session_id)
+    fresh = not state["messages"]  # no history: the answer doesn't depend on context
+    hit = await asyncio.to_thread(cache.get_answer, request.query) if fresh else None
+    if hit:
+        await asyncio.to_thread(_persist_turn, session_id, request.query, hit["response"], hit["route"])
+        _log_summary("chat", hit["route"], cache="hit")
+        return ChatResponse(route=hit["route"] or "general", response=hit["response"], ragas=hit["ragas"])
+    faq = await asyncio.to_thread(canned.find_answer, request.query) if fresh else None
+    if faq:
+        await asyncio.to_thread(_persist_turn, session_id, request.query, faq["answer"], faq["route"])
+        _log_summary("chat", faq["route"], canned=faq["id"])
+        return ChatResponse(route=faq["route"], response=faq["answer"], ragas=None)
     try:
         result = await graph.ainvoke(state)
     except Exception as exc:  # noqa: BLE001 - e.g. every Groq model unavailable
@@ -202,6 +213,8 @@ async def chat(request: ChatRequest, caller: str = Depends(security.chat_caller)
         result.get("final_response") or "",
         result.get("raw_tool_output") or "",
     )
+    if fresh:
+        await asyncio.to_thread(cache.put_answer, request.query, result, ragas)
     _log_summary("chat", result.get("route"), graded=result.get("grading_passed"),
                  retries=result.get("retry_count") or 0)
     return ChatResponse(
@@ -209,6 +222,19 @@ async def chat(request: ChatRequest, caller: str = Depends(security.chat_caller)
         response=result.get("final_response") or "",
         ragas=ragas,
     )
+
+
+@app.get("/history")
+async def history(
+    session_id: str = Query(pattern=SESSION_ID_PATTERN),
+    limit: int = Query(default=50, ge=1, le=200),
+    caller: str = Depends(security.require_api_key),
+):
+    """Messages of one conversation (oldest first), so a reloaded UI can show them again."""
+    messages = await asyncio.to_thread(
+        load_conversation_history, _scoped_session(caller, session_id), (limit + 1) // 2)
+    return {"messages": [{"role": "user" if m.type == "human" else "assistant", "content": m.content}
+                         for m in messages][-limit:]}
 
 
 # Nodes that produce the user-facing answer. We stream tokens ONLY from these — the
@@ -225,15 +251,17 @@ def _sse(event: dict) -> str:
 @app.post("/chat/stream")
 async def chat_stream(request: ChatRequest, caller: str = Depends(security.chat_caller)):
     """
-    Stream progress via SSE. General text streams immediately; specialist text is
-    published after grading, with any verification warning included.
+    Stream the answer token by token via SSE. A specialist's draft streams live; if the
+    grader asks for a retry, a `reset` event discards it, and `final` carries the
+    authoritative text (with any verification warning). A repeated question without
+    conversation history is answered from the Redis cache (progress node "cache").
 
     Event types (one JSON object per `data:` line):
       - {"type":"progress","node":...,"detail":{...}}   after each graph node completes;
                                          `detail` = plain facts for the UI log (app/progress.py);
                                          node "tool_call" = a tool is starting ({"tool", "agent"})
       - {"type":"ttft","seconds":...}    at the first answer token (time-to-first-token)
-      - {"type":"token","text":...}      general tokens, or the checked specialist answer
+      - {"type":"token","text":...}      answer tokens as they are generated
       - {"type":"reset"}                 discard the tokens shown so far: a NEW answer message
                                          starts (the grader asked for a retry, or the agent
                                          wrote text before calling a tool)
@@ -256,9 +284,37 @@ async def chat_stream(request: ChatRequest, caller: str = Depends(security.chat_
         raw_output = None
         current_message = None  # identifies the LLM message whose tokens are on screen
         grader_runs = 0
+        streamed = False
+        grading_passed = None
+        fresh = False
 
         try:
             state = await asyncio.to_thread(_initial_state, request.query, session_id)
+            fresh = not state["messages"]
+            hit = await asyncio.to_thread(cache.get_answer, request.query) if fresh else None
+            if hit:
+                yield _sse({"type": "progress", "node": "cache", "detail": {"hit": True}})
+                ttft = time.perf_counter() - t0
+                yield _sse({"type": "ttft", "seconds": round(ttft, 3)})
+                yield _sse({"type": "token", "text": hit["response"]})
+                await asyncio.to_thread(_persist_turn, session_id, request.query, hit["response"], hit["route"])
+                _log_summary("chat/stream", hit["route"], cache="hit")
+                yield _sse({"type": "ragas", **(hit["ragas"] or {})})
+                yield _sse({"type": "final", "route": hit["route"], "response": hit["response"],
+                            "ttft": round(ttft, 3), "total": round(time.perf_counter() - t0, 3),
+                            "ragas": hit["ragas"], "cached": True})
+                return
+            faq = await asyncio.to_thread(canned.find_answer, request.query) if fresh else None
+            if faq:  # reviewed canned answer: delivered like any answer, no LLM call
+                yield _sse({"type": "progress", "node": "supervisor", "detail": {"route": faq["route"]}})
+                ttft = time.perf_counter() - t0
+                yield _sse({"type": "ttft", "seconds": round(ttft, 3)})
+                yield _sse({"type": "token", "text": faq["answer"]})
+                await asyncio.to_thread(_persist_turn, session_id, request.query, faq["answer"], faq["route"])
+                _log_summary("chat/stream", faq["route"], canned=faq["id"])
+                yield _sse({"type": "final", "route": faq["route"], "response": faq["answer"],
+                            "ttft": round(ttft, 3), "total": round(time.perf_counter() - t0, 3), "ragas": None})
+                return
             # LangGraph runs the (sync) nodes in worker threads and streams their updates
             # and LLM tokens here, without blocking the event loop.
             async for item in graph.astream(state, stream_mode=["updates", "messages"]):
@@ -276,6 +332,8 @@ async def chat_stream(request: ChatRequest, caller: str = Depends(security.chat_
                                 final_response = node_state["final_response"]
                             if "raw_tool_output" in node_state:
                                 raw_output = node_state["raw_tool_output"]
+                            if "grading_passed" in node_state:
+                                grading_passed = node_state["grading_passed"]
                 else:  # mode == "messages"
                     chunk, meta = payload
                     node = meta.get("langgraph_node")
@@ -287,10 +345,6 @@ async def chat_stream(request: ChatRequest, caller: str = Depends(security.chat_
                         if call.get("name"):
                             yield _sse({"type": "progress", "node": "tool_call",
                                         "detail": {"tool": call["name"], "agent": node}})
-                    # Specialist drafts may still fail the grader. Keep progress/tool
-                    # events live, but publish only their authoritative final response.
-                    if node != "general":
-                        continue
                     text = message_text(chunk)
                     if not text:
                         continue
@@ -301,13 +355,15 @@ async def chat_stream(request: ChatRequest, caller: str = Depends(security.chat_
                     if ttft is None:
                         ttft = time.perf_counter() - t0
                         yield _sse({"type": "ttft", "seconds": round(ttft, 3)})
+                    streamed = True
                     yield _sse({"type": "token", "text": text})
         except Exception as exc:  # noqa: BLE001 - report instead of cutting the stream silently
             logger.exception("Graph failed while streaming: %s", exc)
             yield _sse({"type": "error", "message": "The assistant failed to answer. Please try again."})
             return
 
-        if route in {"calculator", "document"} and final_response:
+        if not streamed and final_response:
+            # Text that never came from a streamed LLM message (e.g. the "could not complete" fallback).
             ttft = time.perf_counter() - t0
             yield _sse({"type": "ttft", "seconds": round(ttft, 3)})
             yield _sse({"type": "token", "text": final_response})
@@ -318,6 +374,10 @@ async def chat_stream(request: ChatRequest, caller: str = Depends(security.chat_
         # Live RAGAS: scored after the tokens (never delays TTFT), emitted then echoed in `final`.
         ragas = await evaluate_answer_async(request.query, final_response or "", raw_output or "")
         yield _sse({"type": "ragas", **ragas})
+        if fresh:
+            await asyncio.to_thread(cache.put_answer, request.query,
+                                    {"route": route, "final_response": final_response,
+                                     "raw_tool_output": raw_output, "grading_passed": grading_passed}, ragas)
 
         _log_summary("chat/stream", route, ttft_s=round(ttft, 3) if ttft is not None else None)
         yield _sse({
@@ -387,6 +447,8 @@ async def admin_review_feedback(
         raise HTTPException(status_code=502, detail=_DB_ERROR) from None
     if row is None:
         raise HTTPException(status_code=404, detail="Feedback not found.")
+    if body.decision == "approve":
+        await asyncio.to_thread(cache.clear)  # an approved correction can change cached answers
     return {"id": row.get("id"), "review_status": row.get("review_status")}
 
 

@@ -16,7 +16,6 @@ import os
 import re
 from datetime import datetime, UTC
 
-from langchain_core.tools import tool
 
 from app.db.supabase_client import supabase
 from app.tools.embedding_tool import embed_text
@@ -81,34 +80,6 @@ def store_feedback(
         return ("Feedback recorded successfully! The correction will be applied to similar "
                 "questions once a reviewer approves it.")
     return "Feedback recorded successfully! The system will remember this to self-correct on similar future questions."
-
-
-@tool
-def save_user_feedback(
-    query: str,
-    response: str,
-    is_positive: bool,
-    correction: str | None = None,
-    submitted_by: str | None = None,
-) -> str:
-    """
-    Stores a Presales staff member's feedback or correction into the database,
-    to serve as the AI's learning memory. Corrections wait for a reviewer's approval.
-
-    Args:
-        query: The user's original question.
-        response: The system-generated response that was evaluated.
-        is_positive: Whether the feedback is positive (True) or negative (False).
-        correction: The correct information provided by the human (only needed when is_positive=False).
-        submitted_by: Who submitted it (the API-key label), for traceability.
-
-    Returns:
-        Success/error message.
-    """
-    try:
-        return store_feedback(query, response, is_positive, correction, submitted_by)
-    except Exception as e:
-        return f"Error saving feedback: {str(e)}"
 
 
 def retrieve_past_experiences(

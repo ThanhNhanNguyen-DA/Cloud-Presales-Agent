@@ -10,6 +10,7 @@ correction box; corrections are applied after a reviewer approves them.
 """
 
 import json
+import re
 import os
 import time
 import uuid
@@ -96,11 +97,41 @@ def send_feedback(payload: dict) -> tuple[bool, str]:
 ss = st.session_state
 ss.setdefault("chat_history", [])  # {role, content, query, route, total, ragas, feedback_given, is_error}
 ss.setdefault("activity", [])      # {question, time, entries}
-ss.setdefault("session_id", str(uuid.uuid4()))
+
+
+def _restore_history(session_id: str) -> list[dict]:
+    """Messages saved by the backend for this conversation (empty if none or unreachable)."""
+    try:
+        resp = requests.get(f"{API_BASE_URL}/history", params={"session_id": session_id},
+                            headers=HEADERS, timeout=10)
+        messages = resp.json().get("messages", []) if resp.ok else []
+    except (requests.exceptions.RequestException, ValueError):
+        return []
+    restored, last_question = [], ""
+    for m in messages:
+        if m["role"] == "user":
+            last_question = m["content"]
+            restored.append({"role": "user", "content": m["content"]})
+        else:  # restored answers: no feedback buttons (their scores/route weren't saved)
+            restored.append({"role": "assistant", "content": m["content"], "query": last_question,
+                             "restored": True})
+    return restored
+
+
+# The conversation id lives in the URL (?sid=...), so reloading the page keeps the conversation.
+if "session_id" not in ss:
+    sid = st.query_params.get("sid", "")
+    if re.fullmatch(r"[A-Za-z0-9_.:-]{1,100}", sid):
+        ss.session_id = sid
+        ss.chat_history = _restore_history(sid)
+    else:
+        ss.session_id = str(uuid.uuid4())
+        st.query_params["sid"] = ss.session_id
 
 
 def new_conversation() -> None:
     ss.chat_history, ss.activity, ss.session_id = [], [], str(uuid.uuid4())
+    st.query_params["sid"] = ss.session_id
 
 
 # --------------------------------------------------------------------------- sidebar
@@ -185,6 +216,9 @@ with chat_col:
             else:
                 st.markdown(msg["content"])
             if msg["role"] != "assistant":
+                continue
+            if msg.get("restored"):
+                st.caption("↩️ Tin nhắn trước đó trong cuộc trò chuyện")
                 continue
             if not msg.get("is_error"):
                 meta = [route_badge(msg.get("route"))]

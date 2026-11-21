@@ -106,10 +106,6 @@ class FakeQuery:
     def select(self, *_args, **_kwargs):
         return self
 
-    def ilike(self, column: str, pattern: str):
-        needle = pattern.strip("%").lower()
-        return FakeQuery([r for r in self.rows if needle in str(r.get(column, "")).lower()])
-
     def execute(self):
         return SimpleNamespace(data=self.rows)
 

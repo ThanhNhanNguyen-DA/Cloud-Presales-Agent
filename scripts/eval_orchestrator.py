@@ -182,10 +182,6 @@ class Client:
         return {"content": "", "error": err}, 0.0
 
 
-def _history(turns):
-    return [{"role": r, "content": c} for r, c in turns]
-
-
 def run_routing(client: Client) -> dict:
     from langchain_core.messages import AIMessage, HumanMessage
 

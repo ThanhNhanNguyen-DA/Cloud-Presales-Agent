@@ -94,6 +94,3 @@ def start_request(request_id: str | None = None) -> RequestMetrics:
 def current_metrics() -> RequestMetrics | None:
     return _metrics.get()
 
-
-def current_request_id() -> str:
-    return _request_id.get()
